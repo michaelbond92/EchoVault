@@ -169,9 +169,27 @@ const callGemini = async (systemPrompt, userPrompt) => {
         systemInstruction: { parts: [{ text: systemPrompt }] }
       })
     });
+
+    // FIX: Check HTTP status
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      console.error('Gemini API error:', res.status, errorData);
+      return null;
+    }
+
     const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch (e) { console.error(e); return null; }
+    const result = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+
+    // FIX: Log if no result returned
+    if (!result) {
+      console.error('Gemini API returned no content:', data);
+    }
+
+    return result;
+  } catch (e) {
+    console.error('Gemini API exception:', e);
+    return null;
+  }
 };
 
 const generateEmbedding = async (text) => {
@@ -241,9 +259,39 @@ const analyzeEntry = async (text) => {
   `;
   try {
     const raw = await callGemini(prompt, text);
+
+    // FIX: Better error handling if API call failed
+    if (!raw) {
+      console.error('analyzeEntry: No response from Gemini API');
+      return {
+        title: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+        tags: [],
+        mood_score: 0.5,
+        framework: 'general'
+      };
+    }
+
     const jsonStr = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(jsonStr);
-  } catch (e) { return {}; }
+    const parsed = JSON.parse(jsonStr);
+
+    // FIX: Validate required fields
+    return {
+      title: parsed.title || text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+      mood_score: typeof parsed.mood_score === 'number' ? parsed.mood_score : 0.5,
+      framework: parsed.framework || 'general',
+      cbt_breakdown: parsed.cbt_breakdown,
+      gibbs_reflection: parsed.gibbs_reflection
+    };
+  } catch (e) {
+    console.error('analyzeEntry error:', e);
+    return {
+      title: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+      tags: [],
+      mood_score: 0.5,
+      framework: 'general'
+    };
+  }
 };
 
 const generateInsight = async (current, relevantHistory, recentHistory) => {
@@ -272,9 +320,19 @@ const generateInsight = async (current, relevantHistory, recentHistory) => {
 
   try {
     const raw = await callGemini(prompt, `HISTORY:\n${context}\n\nCURRENT ENTRY:\n${current}`);
+
+    // FIX: Handle null response
+    if (!raw) {
+      console.error('generateInsight: No response from Gemini API');
+      return null;
+    }
+
     const jsonStr = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(jsonStr);
-  } catch (e) { return null; }
+  } catch (e) {
+    console.error('generateInsight error:', e);
+    return null;
+  }
 };
 
 const askJournalAI = async (entries, question) => {
@@ -777,22 +835,44 @@ export default function App() {
       setMode('voice');
       setReplyContext(null);
 
-      Promise.all([analyzeEntry(finalTex), generateInsight(finalTex, related, recent)]).then(async ([analysis, insight]) => {
+      // FIX: Added .catch() to ensure entry always gets marked as complete
+      Promise.all([analyzeEntry(finalTex), generateInsight(finalTex, related, recent)])
+        .then(async ([analysis, insight]) => {
+          console.log('Analysis complete:', { analysis, insight });
 
-        // AI ROUTER CHECK: Decompression for low mood
-        if (analysis && analysis.mood_score < 0.35) {
-          setShowDecompression(true);
-        }
+          // AI ROUTER CHECK: Decompression for low mood
+          if (analysis && analysis.mood_score < 0.35) {
+            setShowDecompression(true);
+          }
 
-        await updateDoc(ref, {
-          analysis: analysis || {},
-          title: analysis?.title || "New Memory",
-          tags: analysis?.tags || [],
-          contextualInsight: insight?.found ? insight : null,
-          analysisStatus: 'complete'
+          await updateDoc(ref, {
+            analysis: analysis || {},
+            title: analysis?.title || "New Memory",
+            tags: analysis?.tags || [],
+            contextualInsight: insight?.found ? insight : null,
+            analysisStatus: 'complete'
+          });
+        })
+        .catch(async (error) => {
+          // FIX: Critical - always mark as complete even if analysis fails
+          console.error('Analysis failed, marking entry as complete with fallback values:', error);
+
+          await updateDoc(ref, {
+            analysis: {
+              mood_score: 0.5,
+              framework: 'general'
+            },
+            title: finalTex.substring(0, 50) + (finalTex.length > 50 ? '...' : ''),
+            tags: [],
+            contextualInsight: null,
+            analysisStatus: 'complete'
+          });
         });
-      });
-    } catch (e) { alert("Save failed"); setProcessing(false); }
+    } catch (e) {
+      console.error('Save failed:', e);
+      alert("Save failed");
+      setProcessing(false);
+    }
   };
 
   const handleAudioWrapper = async (base64, mime) => {
