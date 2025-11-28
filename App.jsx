@@ -31,7 +31,8 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const APP_COLLECTION_ID = 'echo-vault-v5-fresh';
-const GEMINI_API_KEY = "AIzaSyC9Btuhp2wUGx5c1EA6w1lyguy7RJewGRw";
+// FIX: Use environment variable instead of hardcoded key
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // --- iOS Meta Injection ---
 const useIOSMeta = () => {
