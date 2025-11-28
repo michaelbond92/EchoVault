@@ -3,7 +3,7 @@ import {
   Mic, Square, Trash2, Search, LogOut, Loader2, Sparkles, MessageCircle, X, Send,
   Lightbulb, Edit2, Check, Share, LogIn, Activity, AlertTriangle, TrendingUp,
   Database, Briefcase, User as UserIcon, Keyboard, RefreshCw, Calendar, MessageSquarePlus,
-  Brain, Volume2, StopCircle, Bell, Headphones, BookOpen
+  Brain, Volume2, StopCircle, Bell, Headphones
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -291,15 +291,14 @@ const analyzeEntry = async (text) => {
 
     ROUTING LOGIC:
     1. IF text shows anxiety, negative self-talk, or cognitive distortion -> Use 'cbt' framework.
-    2. IF text describes a mistake, a learning experience, or confusion -> Use 'gibbs' framework (Reflective Cycle).
-    3. OTHERWISE -> Use 'general' framework.
+    2. OTHERWISE -> Use 'general' framework.
 
     Return JSON:
     {
       "title": "Short creative title (max 6 words)",
       "tags": ["Tag1", "Tag2"],
       "mood_score": 0.5 (0.0=bad, 1.0=good),
-      "framework": "cbt" | "gibbs" | "general",
+      "framework": "cbt" | "general",
 
       // Include ONLY IF framework == 'cbt'
       "cbt_breakdown": {
@@ -307,13 +306,6 @@ const analyzeEntry = async (text) => {
         "automatic_thought": "The negative thought",
         "distortion": "Label (e.g. Catastrophizing)",
         "challenge": "Rational reframe"
-      },
-
-      // Include ONLY IF framework == 'gibbs'
-      "gibbs_reflection": {
-        "evaluation": "What was good/bad?",
-        "analysis": "Making sense of it",
-        "action_plan": "What to do next time?"
       }
     }
   `;
@@ -342,17 +334,13 @@ const analyzeEntry = async (text) => {
       framework: parsed.framework || 'general'
     };
 
-    // Only add optional framework fields if they exist and are valid objects (don't set to undefined)
+    // Only add CBT breakdown if it exists and is valid
     if (parsed.cbt_breakdown && typeof parsed.cbt_breakdown === 'object' && Object.keys(parsed.cbt_breakdown).length > 0) {
       result.cbt_breakdown = parsed.cbt_breakdown;
-    }
-    if (parsed.gibbs_reflection && typeof parsed.gibbs_reflection === 'object' && Object.keys(parsed.gibbs_reflection).length > 0) {
-      result.gibbs_reflection = parsed.gibbs_reflection;
     }
 
     console.log('analyzeEntry result:', result);
     console.log('Result has cbt_breakdown property?', 'cbt_breakdown' in result);
-    console.log('Result has gibbs_reflection property?', 'gibbs_reflection' in result);
 
     return result;
   } catch (e) {
@@ -545,17 +533,6 @@ const EntryCard = ({ entry, onDelete, onUpdate, onReply }) => {
           <div className="grid gap-2">
             <div><span className="font-semibold text-indigo-900">Thought:</span> {entry.analysis.cbt_breakdown.automatic_thought}</div>
             <div className="bg-white p-2 rounded border border-indigo-100"><span className="font-semibold text-green-700">Challenge:</span> {entry.analysis.cbt_breakdown.challenge}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Gibbs Reflection */}
-      {entry.analysis.framework === 'gibbs' && entry.analysis.gibbs_reflection && (
-        <div className="mb-4 bg-orange-50 p-3 rounded-lg border border-orange-100 text-sm space-y-2">
-          <div className="flex items-center gap-2 text-orange-800 font-bold text-xs uppercase"><BookOpen size={12}/> Reflective Cycle</div>
-          <div className="grid gap-2">
-            <div><span className="font-semibold text-orange-900">Analysis:</span> {entry.analysis.gibbs_reflection.analysis}</div>
-            <div className="bg-white p-2 rounded border border-orange-100"><span className="font-semibold text-orange-800">Next Time:</span> {entry.analysis.gibbs_reflection.action_plan}</div>
           </div>
         </div>
       )}
@@ -913,7 +890,6 @@ export default function App() {
           console.log('Analysis complete:', { analysis, insight });
           console.log('Analysis object keys:', Object.keys(analysis));
           console.log('Has cbt_breakdown?', 'cbt_breakdown' in analysis, analysis.cbt_breakdown);
-          console.log('Has gibbs_reflection?', 'gibbs_reflection' in analysis, analysis.gibbs_reflection);
 
           // AI ROUTER CHECK: Decompression for low mood
           if (analysis && analysis.mood_score < 0.35) {
@@ -933,12 +909,9 @@ export default function App() {
             framework: analysis?.framework || 'general'
           };
 
-          // Only include optional fields if they're defined and not empty objects
+          // Only include CBT breakdown if it exists and is valid
           if (analysis?.cbt_breakdown && typeof analysis.cbt_breakdown === 'object' && Object.keys(analysis.cbt_breakdown).length > 0) {
             updateData.analysis.cbt_breakdown = analysis.cbt_breakdown;
-          }
-          if (analysis?.gibbs_reflection && typeof analysis.gibbs_reflection === 'object' && Object.keys(analysis.gibbs_reflection).length > 0) {
-            updateData.analysis.gibbs_reflection = analysis.gibbs_reflection;
           }
 
           // Only add contextual insight if it exists
@@ -948,7 +921,6 @@ export default function App() {
 
           console.log('Final updateData to save:', JSON.stringify(updateData, null, 2));
           console.log('updateData.analysis has cbt_breakdown?', 'cbt_breakdown' in updateData.analysis);
-          console.log('updateData.analysis has gibbs_reflection?', 'gibbs_reflection' in updateData.analysis);
 
           // FIX: Remove ALL undefined values before sending to Firebase
           const cleanedUpdateData = removeUndefined(updateData);
