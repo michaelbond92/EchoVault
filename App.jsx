@@ -322,13 +322,17 @@ const analyzeEntry = async (text) => {
       framework: parsed.framework || 'general'
     };
 
-    // Only add optional framework fields if they exist (don't set to undefined)
-    if (parsed.cbt_breakdown) {
+    // Only add optional framework fields if they exist and are valid objects (don't set to undefined)
+    if (parsed.cbt_breakdown && typeof parsed.cbt_breakdown === 'object' && Object.keys(parsed.cbt_breakdown).length > 0) {
       result.cbt_breakdown = parsed.cbt_breakdown;
     }
-    if (parsed.gibbs_reflection) {
+    if (parsed.gibbs_reflection && typeof parsed.gibbs_reflection === 'object' && Object.keys(parsed.gibbs_reflection).length > 0) {
       result.gibbs_reflection = parsed.gibbs_reflection;
     }
+
+    console.log('analyzeEntry result:', result);
+    console.log('Result has cbt_breakdown property?', 'cbt_breakdown' in result);
+    console.log('Result has gibbs_reflection property?', 'gibbs_reflection' in result);
 
     return result;
   } catch (e) {
@@ -887,6 +891,9 @@ export default function App() {
       Promise.all([analyzeEntry(finalTex), generateInsight(finalTex, related, recent)])
         .then(async ([analysis, insight]) => {
           console.log('Analysis complete:', { analysis, insight });
+          console.log('Analysis object keys:', Object.keys(analysis));
+          console.log('Has cbt_breakdown?', 'cbt_breakdown' in analysis, analysis.cbt_breakdown);
+          console.log('Has gibbs_reflection?', 'gibbs_reflection' in analysis, analysis.gibbs_reflection);
 
           // AI ROUTER CHECK: Decompression for low mood
           if (analysis && analysis.mood_score < 0.35) {
@@ -906,11 +913,11 @@ export default function App() {
             framework: analysis?.framework || 'general'
           };
 
-          // Only include optional fields if they're defined
-          if (analysis?.cbt_breakdown) {
+          // Only include optional fields if they're defined and not empty objects
+          if (analysis?.cbt_breakdown && typeof analysis.cbt_breakdown === 'object' && Object.keys(analysis.cbt_breakdown).length > 0) {
             updateData.analysis.cbt_breakdown = analysis.cbt_breakdown;
           }
-          if (analysis?.gibbs_reflection) {
+          if (analysis?.gibbs_reflection && typeof analysis.gibbs_reflection === 'object' && Object.keys(analysis.gibbs_reflection).length > 0) {
             updateData.analysis.gibbs_reflection = analysis.gibbs_reflection;
           }
 
@@ -918,6 +925,10 @@ export default function App() {
           if (insight?.found) {
             updateData.contextualInsight = insight;
           }
+
+          console.log('Final updateData to save:', JSON.stringify(updateData, null, 2));
+          console.log('updateData.analysis has cbt_breakdown?', 'cbt_breakdown' in updateData.analysis);
+          console.log('updateData.analysis has gibbs_reflection?', 'gibbs_reflection' in updateData.analysis);
 
           try {
             await updateDoc(ref, updateData);
