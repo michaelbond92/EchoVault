@@ -651,12 +651,13 @@ const EntryCard = ({ entry, onDelete, onUpdate, onReply }) => {
 };
 
 const Chat = ({ entries, onClose, category }) => {
-  const [msgs, setMsgs] = useState([{ role: 'sys', text: `I'm your ${category} memory AI. Talk to yourself.` }]);
+  const [msgs, setMsgs] = useState([{ role: 'sys', text: `I'm your ${category} journal assistant. Ask me anything about your entries!` }]);
   const [txt, setTxt] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceInput, setVoiceInput] = useState(false);
   const [conversationMode, setConversationMode] = useState(false);
+  const [relevantEntries, setRelevantEntries] = useState([]);
   const endRef = useRef(null);
 
   useEffect(() => endRef.current?.scrollIntoView(), [msgs]);
@@ -715,14 +716,53 @@ const Chat = ({ entries, onClose, category }) => {
     setMsgs(p => [...p, { role: 'user', text: textToSend }]);
     setLoading(true);
 
-    const context = entries.slice(0, 30).map(e => `[${e.createdAt.toLocaleDateString()}] ${e.text}`).join('\n');
-    // Use OpenAI for faster, more conversational responses
+    // RAG: Generate embedding for the question and retrieve relevant entries
+    const questionEmbedding = await generateEmbedding(textToSend);
+
+    let relevantContext = '';
+    let foundEntries = [];
+
+    if (questionEmbedding) {
+      // Use cosine similarity to find most relevant entries
+      foundEntries = entries
+        .filter(e => e.embedding)
+        .map(e => ({
+          ...e,
+          similarity: cosineSimilarity(questionEmbedding, e.embedding)
+        }))
+        .filter(e => e.similarity > 0.3) // Only use reasonably relevant entries
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 10); // Top 10 most relevant entries
+
+      if (foundEntries.length > 0) {
+        relevantContext = foundEntries
+          .map(e => `[${e.createdAt.toLocaleDateString()}] ${e.title || 'Entry'}: ${e.text}`)
+          .join('\n\n');
+        setRelevantEntries(foundEntries.map(e => e.id));
+      }
+    }
+
+    // Fallback to recent entries if no relevant ones found
+    if (!relevantContext) {
+      relevantContext = entries.slice(0, 5)
+        .map(e => `[${e.createdAt.toLocaleDateString()}] ${e.title || 'Entry'}: ${e.text}`)
+        .join('\n\n');
+    }
+
+    // Use OpenAI with RAG context
     const ans = await callOpenAI(
-      `You are a helpful, conversational inner voice helping the user reflect on their journal entries. Be concise (2-3 sentences max), warm, and supportive. Reference their past entries when relevant.\n\nCONTEXT:\n${context}`,
+      `You are a helpful journal assistant with access to the user's ${category} journal entries. Answer questions based PRIMARILY on their journal entries provided below. Be concise (2-3 sentences), warm, and supportive. Reference specific entries when relevant.
+
+JOURNAL ENTRIES (most relevant to question):
+${relevantContext}`,
       textToSend
     );
 
-    setMsgs(p => [...p, { role: 'ai', text: ans || "I couldn't find an answer." }]);
+    setMsgs(p => [...p, {
+      role: 'ai',
+      text: ans || "I couldn't find relevant information in your journal entries.",
+      sources: foundEntries.length > 0 ? foundEntries.length : null
+    }]);
     setLoading(false);
 
     if (conversationMode && ans) {
@@ -752,7 +792,7 @@ const Chat = ({ entries, onClose, category }) => {
             >
                 <Headphones size={20} className={conversationMode ? "animate-pulse" : ""} />
             </button>
-            <span className="font-bold text-lg">Talk to Yourself ({category})</span>
+            <span className="font-bold text-lg">Journal Assistant ({category})</span>
         </div>
         <button onClick={onClose} className="p-1 hover:bg-indigo-700 rounded-full"><X size={24}/></button>
       </div>
@@ -762,6 +802,11 @@ const Chat = ({ entries, onClose, category }) => {
           <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`max-w-[85%] p-4 rounded-2xl text-sm shadow-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
               <MarkdownLite text={m.text} />
+              {m.role === 'ai' && m.sources && (
+                <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500 flex items-center gap-1">
+                  <Database size={12} /> Based on {m.sources} relevant journal {m.sources === 1 ? 'entry' : 'entries'}
+                </div>
+              )}
             </div>
             {m.role === 'ai' && (
               <button onClick={() => speak(m.text)} className="mt-1 text-gray-400 hover:text-indigo-600 p-1">
@@ -770,7 +815,7 @@ const Chat = ({ entries, onClose, category }) => {
             )}
           </div>
         ))}
-        {loading && <div className="text-xs text-gray-400 p-2 text-center animate-pulse">Thinking...</div>}
+        {loading && <div className="text-xs text-gray-400 p-2 text-center animate-pulse">Searching your journal...</div>}
         <div ref={endRef} />
       </div>
 
