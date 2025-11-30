@@ -33,6 +33,7 @@ const db = getFirestore(app);
 const APP_COLLECTION_ID = 'echo-vault-v5-fresh';
 // FIX: Use environment variable instead of hardcoded key
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
 // --- iOS Meta Injection ---
 const useIOSMeta = () => {
@@ -227,30 +228,44 @@ const generateEmbedding = async (text) => {
 
 const transcribeAudio = async (base64, mimeType) => {
   try {
-    // FIX: Log request details for debugging
-    console.log('Transcription request:', {
+    console.log('Whisper transcription request:', {
       mimeType,
       audioLength: base64.length,
-      model: 'gemini-2.5-flash-preview-09-2025'
+      model: 'whisper-1'
     });
 
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
+    // Check API key
+    if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') {
+      console.error('OpenAI API key not configured');
+      return 'API_AUTH_ERROR';
+    }
+
+    // Convert base64 to Blob
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const audioBlob = new Blob([bytes], { type: mimeType });
+
+    // Create FormData for Whisper API
+    const formData = new FormData();
+    // Determine file extension from mimeType
+    const fileExt = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : 'wav';
+    formData.append('file', audioBlob, `audio.${fileExt}`);
+    formData.append('model', 'whisper-1');
+
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: "Transcribe audio exactly. If silent, return 'NO_SPEECH'." },
-            { inlineData: { mimeType: mimeType, data: base64 } }
-          ]
-        }]
-      })
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: formData
     });
 
-    // FIX: Check HTTP status
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      console.error('Transcribe API error:', res.status, errorData);
+      console.error('Whisper API error:', res.status, errorData);
       console.error('Full error details:', {
         status: res.status,
         statusText: res.statusText,
@@ -259,7 +274,6 @@ const transcribeAudio = async (base64, mimeType) => {
         audioSizeBytes: base64.length
       });
 
-      // Return error indicator instead of null
       if (res.status === 429) return 'API_RATE_LIMIT';
       if (res.status === 401) return 'API_AUTH_ERROR';
       if (res.status === 400) return 'API_BAD_REQUEST';
@@ -267,18 +281,21 @@ const transcribeAudio = async (base64, mimeType) => {
     }
 
     const data = await res.json();
-    const result = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    let transcript = data.text || null;
 
-    // FIX: Log if no result returned
-    if (!result) {
-      console.error('Transcribe API returned no content:', data);
+    if (!transcript) {
+      console.error('Whisper API returned no content:', data);
       return 'API_NO_CONTENT';
     }
 
-    console.log('Transcription result:', result);
-    return result;
+    // Remove filler words (um, uh, like, etc.)
+    const fillerWords = /\b(um|uh|uhm|like|you know|so|well|actually|basically|literally)\b/gi;
+    transcript = transcript.replace(fillerWords, ' ').replace(/\s+/g, ' ').trim();
+
+    console.log('Whisper transcription result:', transcript);
+    return transcript;
   } catch (e) {
-    console.error('Transcribe API exception:', e);
+    console.error('Whisper API exception:', e);
     return 'API_EXCEPTION';
   }
 };
