@@ -520,26 +520,12 @@ const EntryCard = ({ entry, onDelete, onUpdate, onReply }) => {
 
       {/* Insight Box */}
       {entry.contextualInsight?.found && insightMsg && (
-        <div className={`mb-4 p-3 rounded-lg text-sm border flex flex-col gap-2 ${entry.contextualInsight.type === 'warning' ? 'bg-red-50 border-red-100 text-red-800' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
-          <div className="flex gap-3">
-            <Lightbulb size={18} className="shrink-0 mt-0.5"/>
-            <div>
-              <div className="font-bold text-[10px] uppercase opacity-75 tracking-wider mb-1">{safeString(entry.contextualInsight.type)}</div>
-              {insightMsg}
-            </div>
+        <div className={`mb-4 p-3 rounded-lg text-sm border flex gap-3 ${entry.contextualInsight.type === 'warning' ? 'bg-red-50 border-red-100 text-red-800' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
+          <Lightbulb size={18} className="shrink-0 mt-0.5"/>
+          <div>
+            <div className="font-bold text-[10px] uppercase opacity-75 tracking-wider mb-1">{safeString(entry.contextualInsight.type)}</div>
+            {insightMsg}
           </div>
-          {followUpQuestions.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-black/10 flex flex-col gap-2">
-              {followUpQuestions.map((q, i) => (
-                <div key={i} className="flex items-start justify-between gap-2">
-                  <span className="text-xs font-medium italic flex-1">"{q}"</span>
-                  <button onClick={() => onReply(q)} className="flex items-center gap-1 text-[10px] font-bold bg-white/80 px-2 py-1 rounded hover:bg-white transition-colors shadow-sm uppercase tracking-wide shrink-0">
-                    <MessageSquarePlus size={12}/> Reply
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -741,6 +727,63 @@ const WeeklyReport = ({ text, onClose }) => (
   </div>
 );
 
+const PromptScreen = ({ prompts, onSelectPrompt, onRecordFreely, onTypeFreely, onClose }) => {
+  return (
+    <div className="fixed inset-0 bg-white z-40 flex flex-col pt-[env(safe-area-inset-top)] animate-in slide-in-from-bottom-10 duration-200">
+      <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md">
+        <h2 className="font-bold text-lg flex gap-2 items-center"><MessageCircle size={20}/> Ready to Reflect?</h2>
+        <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-full"><X size={24}/></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+        {prompts.length > 0 && (
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+              <Sparkles size={14}/> Recent Prompts
+            </h3>
+            <div className="space-y-2">
+              {prompts.map((prompt, i) => (
+                <button
+                  key={i}
+                  onClick={() => onSelectPrompt(prompt)}
+                  className="w-full bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left group"
+                >
+                  <div className="flex items-start gap-3">
+                    <MessageSquarePlus size={18} className="text-indigo-500 shrink-0 mt-0.5 group-hover:scale-110 transition-transform"/>
+                    <p className="text-sm text-gray-700 font-medium italic">"{prompt}"</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mb-4">
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Or Start Fresh</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={onRecordFreely}
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex flex-col items-center gap-2"
+            >
+              <Mic size={28} className="opacity-90"/>
+              <span className="font-bold text-base">Record</span>
+              <span className="text-xs opacity-75">Voice entry</span>
+            </button>
+            <button
+              onClick={onTypeFreely}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex flex-col items-center gap-2"
+            >
+              <Keyboard size={28} className="opacity-90"/>
+              <span className="font-bold text-base">Type</span>
+              <span className="text-xs opacity-75">Text entry</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const VoiceRecorder = ({ onSave, onSwitch, loading, minimal }) => {
   const [rec, setRec] = useState(false);
   const [mr, setMr] = useState(null);
@@ -817,6 +860,22 @@ const TextInput = ({ onSave, onCancel, loading }) => {
   );
 };
 
+const NewEntryButton = ({ onClick }) => {
+  return (
+    <div className="fixed bottom-0 w-full bg-white border-t p-4 z-20 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+      <div className="flex justify-center items-center max-w-md mx-auto">
+        <button
+          onClick={onClick}
+          className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-8 py-4 rounded-full shadow-lg hover:shadow-xl transition-all flex items-center gap-3 font-bold text-lg"
+        >
+          <Mic size={24} className="opacity-90"/>
+          New Entry
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   useIOSMeta();
   const { permission, requestPermission } = useNotifications();
@@ -824,12 +883,13 @@ export default function App() {
   const [entries, setEntries] = useState([]);
   const [view, setView] = useState('feed');
   const [cat, setCat] = useState('personal');
-  const [mode, setMode] = useState('voice');
+  const [mode, setMode] = useState('idle');
   const [processing, setProcessing] = useState(false);
   const [report, setReport] = useState(null);
   const [backfilling, setBackfilling] = useState(false);
   const [replyContext, setReplyContext] = useState(null);
   const [showDecompression, setShowDecompression] = useState(false);
+  const [showPrompts, setShowPrompts] = useState(false);
 
   // Auth
   useEffect(() => {
@@ -858,6 +918,29 @@ export default function App() {
   }, [user]);
 
   const visible = useMemo(() => entries.filter(e => e.category === cat), [entries, cat]);
+
+  // Collect all follow-up questions from recent entries
+  const availablePrompts = useMemo(() => {
+    const prompts = [];
+    const recentEntries = visible.slice(0, 10); // Look at last 10 entries
+
+    recentEntries.forEach(entry => {
+      if (entry.contextualInsight?.found && entry.contextualInsight.followUpQuestions) {
+        const questions = Array.isArray(entry.contextualInsight.followUpQuestions)
+          ? entry.contextualInsight.followUpQuestions
+          : [entry.contextualInsight.followUpQuestions];
+        questions.forEach(q => {
+          if (q && !prompts.includes(q)) prompts.push(q);
+        });
+      }
+      // Handle legacy single followUpQuestion field
+      if (entry.contextualInsight?.followUpQuestion && !prompts.includes(entry.contextualInsight.followUpQuestion)) {
+        prompts.push(entry.contextualInsight.followUpQuestion);
+      }
+    });
+
+    return prompts.slice(0, 5); // Return max 5 prompts
+  }, [visible]);
 
   const handleBackfill = async () => {
     if (!confirm("Process old memories?")) return;
@@ -898,7 +981,7 @@ export default function App() {
       });
 
       setProcessing(false);
-      setMode('voice');
+      setMode('idle');
       setReplyContext(null);
 
       // FIX: Added .catch() to ensure entry always gets marked as complete
@@ -1030,7 +1113,25 @@ export default function App() {
 
   const handleReply = (question) => {
     setReplyContext(question);
-    setMode('voice');
+    setMode('recording_voice');
+  };
+
+  const handleSelectPrompt = (prompt) => {
+    setReplyContext(prompt);
+    setShowPrompts(false);
+    setMode('recording_voice');
+  };
+
+  const handleRecordFreely = () => {
+    setReplyContext(null);
+    setShowPrompts(false);
+    setMode('recording_voice');
+  };
+
+  const handleTypeFreely = () => {
+    setReplyContext(null);
+    setShowPrompts(false);
+    setMode('recording_text');
   };
 
   const handleReport = async () => {
@@ -1084,7 +1185,7 @@ export default function App() {
         )}
       </div>
 
-      {replyContext && (
+      {replyContext && !showPrompts && (
         <div className="fixed bottom-24 left-4 right-4 bg-indigo-900 text-white p-3 rounded-lg z-30 flex justify-between items-center shadow-lg animate-in slide-in-from-bottom-2">
           <div className="text-xs">
             <span className="opacity-70 block text-[10px] uppercase font-bold">Replying to:</span>
@@ -1094,10 +1195,20 @@ export default function App() {
         </div>
       )}
 
-      {mode === 'voice' ? (
-        <VoiceRecorder onSave={handleAudioWrapper} onSwitch={() => setMode('text')} loading={processing} />
+      {showPrompts ? (
+        <PromptScreen
+          prompts={availablePrompts}
+          onSelectPrompt={handleSelectPrompt}
+          onRecordFreely={handleRecordFreely}
+          onTypeFreely={handleTypeFreely}
+          onClose={() => setShowPrompts(false)}
+        />
+      ) : mode === 'recording_voice' ? (
+        <VoiceRecorder onSave={handleAudioWrapper} onSwitch={() => setMode('recording_text')} loading={processing} />
+      ) : mode === 'recording_text' ? (
+        <TextInput onSave={saveEntry} onCancel={() => {setMode('idle'); setReplyContext(null);}} loading={processing} />
       ) : (
-        <TextInput onSave={saveEntry} onCancel={() => setMode('voice')} loading={processing} />
+        <NewEntryButton onClick={() => setShowPrompts(true)} />
       )}
 
       {view === 'chat' && <Chat entries={visible} onClose={() => setView('feed')} category={cat} />}
