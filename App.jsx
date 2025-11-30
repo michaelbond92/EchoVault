@@ -83,22 +83,43 @@ const useNotifications = () => {
   };
 
   useEffect(() => {
-    // FIX: Check if Notification API exists before using it
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (permission !== 'granted') return;
+
+    const sendNotification = (key, title, body) => {
+      const today = new Date().toDateString();
+      const lastSent = localStorage.getItem(`notif_${key}`);
+
+      if (lastSent !== today) {
+        try {
+          new Notification(title, { body, icon: '/icon-192.png' });
+          localStorage.setItem(`notif_${key}`, today);
+        } catch (error) {
+          console.error('Notification error:', error);
+        }
+      }
+    };
 
     const checkTime = () => {
       const now = new Date();
       const hour = now.getHours();
-      const min = now.getMinutes();
-      try {
-        if (hour === 9 && min === 0) new Notification("EchoVault: Morning Plan", { body: "What are you planning to do today? Record a quick thought." });
-        if (hour === 20 && min === 0) new Notification("EchoVault: End of Day", { body: "How did it go? Close your loops for the day." });
-      } catch (error) {
-        console.error('Notification error:', error);
+
+      // Morning notification (9 AM - 11 AM window)
+      if (hour >= 9 && hour < 11) {
+        sendNotification('morning', 'EchoVault: Morning Plan', 'What are you planning to do today? Record a quick thought.');
+      }
+
+      // Evening notification (8 PM - 10 PM window)
+      if (hour >= 20 && hour < 22) {
+        sendNotification('evening', 'EchoVault: End of Day', 'How did it go? Close your loops for the day.');
       }
     };
-    const interval = setInterval(checkTime, 60000);
+
+    // Check immediately on load
+    checkTime();
+
+    // Check every 30 minutes
+    const interval = setInterval(checkTime, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [permission]);
 
@@ -210,6 +231,51 @@ const callGemini = async (systemPrompt, userPrompt) => {
     return result;
   } catch (e) {
     console.error('Gemini API exception:', e);
+    return null;
+  }
+};
+
+// --- OPENAI GPT API ---
+const callOpenAI = async (systemPrompt, userPrompt) => {
+  try {
+    if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') {
+      console.error('OpenAI API key not configured');
+      return null;
+    }
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      })
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      console.error('OpenAI API error:', res.status, errorData);
+      return null;
+    }
+
+    const data = await res.json();
+    const result = data.choices?.[0]?.message?.content || null;
+
+    if (!result) {
+      console.error('OpenAI API returned no content:', data);
+    }
+
+    return result;
+  } catch (e) {
+    console.error('OpenAI API exception:', e);
     return null;
   }
 };
@@ -479,18 +545,24 @@ const MoodHeatmap = ({ entries }) => {
     const d = new Date(); d.setDate(new Date().getDate() - (29 - i)); return d;
   }), []);
 
-  const getColor = (d) => {
+  const getMoodEmoji = (d) => {
     const entry = entries.find(e => e.createdAt.getDate() === d.getDate() && e.createdAt.getMonth() === d.getMonth());
-    if (!entry || typeof entry.analysis.mood_score !== 'number') return 'bg-gray-100';
-    if (entry.analysis.mood_score >= 0.7) return 'bg-green-400';
-    if (entry.analysis.mood_score >= 0.4) return 'bg-blue-300';
-    return 'bg-red-300';
+    if (!entry || typeof entry.analysis.mood_score !== 'number') return '⚪';
+    if (entry.analysis.mood_score >= 0.75) return '😊';
+    if (entry.analysis.mood_score >= 0.55) return '🙂';
+    if (entry.analysis.mood_score >= 0.35) return '😐';
+    if (entry.analysis.mood_score >= 0.15) return '😟';
+    return '😢';
   };
 
   return (
     <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm mb-6">
       <div className="flex items-center gap-2 mb-3 text-gray-700 font-semibold text-xs uppercase tracking-wide"><Activity size={14} /> Mood (30 Days)</div>
-      <div className="flex justify-between gap-1">{days.map((d, i) => <div key={i} className={`h-8 w-full rounded-sm ${getColor(d)} transition-colors`} title={d.toLocaleDateString()} />)}</div>
+      <div className="flex justify-between gap-0.5 flex-wrap">{days.map((d, i) => (
+        <div key={i} className="text-xl" title={d.toLocaleDateString()}>
+          {getMoodEmoji(d)}
+        </div>
+      ))}</div>
     </div>
   );
 };
@@ -644,7 +716,11 @@ const Chat = ({ entries, onClose, category }) => {
     setLoading(true);
 
     const context = entries.slice(0, 30).map(e => `[${e.createdAt.toLocaleDateString()}] ${e.text}`).join('\n');
-    const ans = await callGemini(`Answer user as a helpful inner voice. Use Markdown. CONTEXT:\n${context}`, textToSend);
+    // Use OpenAI for faster, more conversational responses
+    const ans = await callOpenAI(
+      `You are a helpful, conversational inner voice helping the user reflect on their journal entries. Be concise (2-3 sentences max), warm, and supportive. Reference their past entries when relevant.\n\nCONTEXT:\n${context}`,
+      textToSend
+    );
 
     setMsgs(p => [...p, { role: 'ai', text: ans || "I couldn't find an answer." }]);
     setLoading(false);
@@ -995,8 +1071,6 @@ export default function App() {
   const [cat, setCat] = useState('personal');
   const [mode, setMode] = useState('idle');
   const [processing, setProcessing] = useState(false);
-  const [report, setReport] = useState(null);
-  const [backfilling, setBackfilling] = useState(false);
   const [replyContext, setReplyContext] = useState(null);
   const [showDecompression, setShowDecompression] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
@@ -1052,25 +1126,6 @@ export default function App() {
 
     return prompts.slice(0, 5); // Return max 5 prompts
   }, [visible]);
-
-  const handleBackfill = async () => {
-    if (!confirm("Process old memories?")) return;
-    setBackfilling(true);
-    const snapshot = await getDocs(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries'));
-    let count = 0;
-    for (const docSnap of snapshot.docs) {
-      const data = docSnap.data();
-      if (!data.embedding && data.text) {
-        const embedding = await generateEmbedding(data.text);
-        if (embedding) {
-          await updateDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', docSnap.id), { embedding, category: 'personal' });
-          count++;
-        }
-      }
-    }
-    alert(`Updated ${count} memories!`);
-    setBackfilling(false);
-  };
 
   const saveEntry = async (textInput) => {
     if (!user) return;
@@ -1240,12 +1295,6 @@ export default function App() {
     }
   };
 
-  const handleReport = async () => {
-    const txt = visible.slice(0, 20).map(e => e.text).join('\n');
-    const ans = await callGemini(`Analyze past week's ${cat} entries. Format with ### and *.`, txt);
-    setReport(ans);
-  };
-
   if (!user) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-50">
       <div className="h-16 w-16 bg-indigo-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg rotate-3"><Activity className="text-white"/></div>
@@ -1263,8 +1312,6 @@ export default function App() {
           <h1 className="font-bold text-lg flex gap-2 text-gray-800"><Brain className="text-indigo-600"/> EchoVault</h1>
           <div className="flex gap-2">
             <button onClick={requestPermission} className={`p-2 rounded-full hover:bg-gray-100 ${permission === 'granted' ? 'text-indigo-600' : 'text-gray-400'}`} title="Notifications"><Bell size={20}/></button>
-            <button onClick={handleBackfill} disabled={backfilling} className="p-2 rounded-full hover:bg-gray-100 text-gray-500"><Database size={20} className={backfilling ? "animate-spin" : ""}/></button>
-            <button onClick={handleReport} className="p-2 rounded-full hover:bg-gray-100 text-gray-500"><Lightbulb size={20}/></button>
             <button onClick={() => setView('chat')} className="p-2 rounded-full hover:bg-gray-100 text-gray-500"><MessageCircle size={20}/></button>
             <button onClick={() => signOut(auth)} className="p-2 rounded-full hover:bg-red-50 text-red-500"><LogOut size={20}/></button>
           </div>
@@ -1322,7 +1369,6 @@ export default function App() {
       )}
 
       {view === 'chat' && <Chat entries={visible} onClose={() => setView('feed')} category={cat} />}
-      {report && <WeeklyReport text={report} onClose={() => setReport(null)} />}
     </div>
   );
 }
