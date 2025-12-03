@@ -1223,6 +1223,50 @@ export default function App() {
     });
   }, [user]);
 
+  // Self-healing: Backfill embeddings for entries that are missing them
+  useEffect(() => {
+    if (!user || entries.length === 0) return;
+
+    const backfillMissingEmbeddings = async () => {
+      const entriesWithoutEmbedding = entries.filter(
+        e => !e.embedding || !Array.isArray(e.embedding) || e.embedding.length === 0
+      );
+
+      if (entriesWithoutEmbedding.length === 0) return;
+
+      console.log(`Found ${entriesWithoutEmbedding.length} entries without embeddings, backfilling...`);
+
+      const MAX_BACKFILL_PER_SESSION = 5;
+      const toBackfill = entriesWithoutEmbedding.slice(0, MAX_BACKFILL_PER_SESSION);
+
+      for (const entry of toBackfill) {
+        if (!entry.text || entry.text.trim().length === 0) continue;
+
+        try {
+          const embedding = await generateEmbedding(entry.text);
+          if (embedding) {
+            await updateDoc(
+              doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', entry.id),
+              { embedding }
+            );
+            console.log(`Backfilled embedding for entry ${entry.id}`);
+          }
+        } catch (e) {
+          console.error(`Failed to backfill embedding for entry ${entry.id}:`, e);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      if (entriesWithoutEmbedding.length > MAX_BACKFILL_PER_SESSION) {
+        console.log(`${entriesWithoutEmbedding.length - MAX_BACKFILL_PER_SESSION} entries still need embeddings (will process on next session)`);
+      }
+    };
+
+    const timeoutId = setTimeout(backfillMissingEmbeddings, 2000);
+    return () => clearTimeout(timeoutId);
+  }, [user, entries.length]);
+
   const visible = useMemo(() => entries.filter(e => e.category === cat), [entries, cat]);
 
   // Collect all follow-up questions from recent entries
