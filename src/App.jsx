@@ -43,7 +43,7 @@ const AI_CONFIG = {
     fallback: 'gpt-4o-mini'
   },
   analysis: {
-    primary: 'gemini-2.5-flash-preview-05-20',
+    primary: 'gemini-2.0-flash',
     fallback: 'gpt-4o'
   },
   chat: {
@@ -762,17 +762,32 @@ const analyzeEntry = async (text, entryType = 'reflection') => {
   }
   
   if (entryType === 'vent') {
+    // Get current hour for time-aware cooldown suggestions
+    const currentHour = new Date().getHours();
+    const isLateNight = currentHour >= 22 || currentHour < 5;
+
     const ventPrompt = `
       This person is venting and needs validation, NOT advice.
-      
+      ${isLateNight ? 'CONTEXT: It is late night/early morning. Favor gentle, sleep-compatible techniques.' : ''}
+
       CRITICAL RULES:
       - DO NOT challenge their thoughts
       - DO NOT offer solutions or advice
       - DO NOT minimize ("at least...", "it could be worse...")
       - DO NOT use "have you considered..."
-      
+
       Goal: Lower physiological arousal through validation and grounding.
-      
+
+      COOLDOWN TECHNIQUES (choose the most appropriate):
+      - "grounding": 5-4-3-2-1 senses, name objects in room, feel feet on floor
+      - "breathing": Box breathing, 4-7-8 technique, slow exhales
+      - "sensory": Cold water on wrists, hold ice, splash face
+      - "movement": Shake hands vigorously, walk to another room, stretch
+      - "temperature": Hold something cold, step outside briefly, cool washcloth
+      - "bilateral": Tap alternating knees, cross-body movements, butterfly hug
+      - "vocalization": Hum, sigh loudly, low "voo" sound, humming exhale
+      ${isLateNight ? '(Prefer: breathing, grounding, bilateral, vocalization - avoid movement/temperature at night)' : ''}
+
       Return JSON:
       {
         "title": "Short empathetic title (max 6 words)",
@@ -780,8 +795,8 @@ const analyzeEntry = async (text, entryType = 'reflection') => {
         "mood_score": 0.0-1.0 (0.0=very distressed, 1.0=calm),
         "validation": "A warm, empathetic validation of their feelings (2-3 sentences)",
         "cooldown": {
-          "technique": "grounding" | "breathing" | "sensory",
-          "instruction": "Simple 1-2 sentence instruction"
+          "technique": "grounding" | "breathing" | "sensory" | "movement" | "temperature" | "bilateral" | "vocalization",
+          "instruction": "Simple 1-2 sentence instruction appropriate for ${isLateNight ? 'late night' : 'this time of day'}"
         }
       }
     `;
@@ -824,33 +839,65 @@ const analyzeEntry = async (text, entryType = 'reflection') => {
     }
   }
 
-  const prompt = `
-    Analyze this journal entry with the enhanced CBT toolkit.
+  // Get current hour for time-aware responses
+  const currentHour = new Date().getHours();
+  const timeContext = currentHour >= 22 || currentHour < 5 ? 'late_night'
+    : currentHour < 12 ? 'morning'
+    : currentHour < 17 ? 'afternoon'
+    : 'evening';
 
-    ROUTING LOGIC:
-    1. IF text shows anxiety, negative self-talk, or cognitive distortion -> Use 'cbt' framework.
-    2. OTHERWISE -> Use 'general' framework.
+  const prompt = `
+    Analyze this journal entry and route to the appropriate therapeutic framework.
+
+    CONTEXT: Entry submitted during ${timeContext} (${currentHour}:00)
+    ${entryType === 'mixed' ? 'NOTE: This entry contains both tasks AND emotional content. Acknowledge the emotional weight of their to-do list.' : ''}
+
+    ROUTING LOGIC (choose ONE framework):
+    1. "cbt" - IF text shows anxiety, negative self-talk, or cognitive distortion
+    2. "celebration" - IF text describes wins, accomplishments, gratitude, joy, or positive experiences
+    3. "general" - For neutral observations, casual updates, or mixed content without strong emotion
+
+    RESPONSE DEPTH (based on emotional intensity):
+    - mood_score 0.6+ (positive/neutral): Light response - validation or affirmation only
+    - mood_score 0.4-0.6 (mixed): Medium response - add perspective if helpful
+    - mood_score 0.2-0.4 (struggling): Full response - include behavioral suggestions
+    - mood_score <0.2 (distressed): Full response + always include behavioral_activation
+
+    TIME-AWARE SUGGESTIONS:
+    - late_night: Favor sleep hygiene, gentle grounding, avoid "go for a walk" type suggestions
+    - morning: Can suggest movement, planning, fresh starts
+    - afternoon/evening: Standard suggestions appropriate
 
     Return JSON:
     {
       "title": "Short creative title (max 6 words)",
       "tags": ["Tag1", "Tag2"],
       "mood_score": 0.5 (0.0=bad, 1.0=good),
-      "framework": "cbt" | "general",
+      "framework": "cbt" | "celebration" | "general",
 
-      // Include ONLY IF framework == 'cbt'
+      // Include ONLY IF framework == 'cbt' AND warranted by mood_score depth rules
       "cbt_breakdown": {
-        "automatic_thought": "The negative thought pattern identified",
-        "distortion": "Cognitive distortion label (e.g., Catastrophizing, All-or-Nothing)",
-        "validation": "Empathetic acknowledgment of their feelings (1-2 sentences)",
-        "socratic_question": "A thought-provoking question to challenge the thought",
-        "suggested_reframe": "A healthier way to think about this",
+        "automatic_thought": "The negative thought pattern identified (or null if not clear)",
+        "distortion": "Cognitive distortion label (or null if minor/not worth highlighting)",
+        "validation": "Empathetic acknowledgment (1-2 sentences) - ALWAYS include for cbt",
+        "perspective": "Question to consider: [question] — Alternative view: [reframe] (or null if mood > 0.5)",
         "behavioral_activation": {
-          "activity": "A simple activity under 5 minutes, no prep needed",
+          "activity": "A simple activity under 5 minutes, appropriate for ${timeContext}",
           "rationale": "Why this helps (1 sentence)"
         }
-      }
+      },
+
+      // Include ONLY IF framework == 'celebration'
+      "celebration": {
+        "affirmation": "Warm acknowledgment of their positive moment (1-2 sentences)",
+        "amplify": "Optional prompt to savor or deepen the positive feeling (or null if not needed)"
+      },
+
+      // Include ONLY IF entryType is 'mixed' - acknowledge task load
+      "task_acknowledgment": "Brief empathetic note about their to-do list load (or null)"
     }
+
+    IMPORTANT: Return null for any field that isn't genuinely useful. Less is more.
   `;
   try {
     const raw = await callGemini(prompt, text);
@@ -881,6 +928,16 @@ const analyzeEntry = async (text, entryType = 'reflection') => {
       result.cbt_breakdown = parsed.cbt_breakdown;
     }
 
+    // Capture celebration framework response
+    if (parsed.celebration && typeof parsed.celebration === 'object') {
+      result.celebration = parsed.celebration;
+    }
+
+    // Capture task acknowledgment for mixed entries
+    if (parsed.task_acknowledgment) {
+      result.task_acknowledgment = parsed.task_acknowledgment;
+    }
+
     console.log('analyzeEntry result:', result);
 
     return result;
@@ -903,21 +960,50 @@ const generateInsight = async (current, relevantHistory, recentHistory) => {
 
   if (uniqueHistory.length === 0) return null;
 
-  const context = uniqueHistory.map(e => `[${e.createdAt.toLocaleDateString()}] ${e.text}`).join('\n');
+  // Add date context for time-boxing
+  const today = new Date();
+  const context = uniqueHistory.map(e => {
+    const entryDate = e.createdAt instanceof Date ? e.createdAt : e.createdAt.toDate();
+    const daysAgo = Math.floor((today - entryDate) / (1000 * 60 * 60 * 24));
+    return `[${entryDate.toLocaleDateString()} - ${daysAgo} days ago] ${e.text}`;
+  }).join('\n');
 
   const prompt = `
-    You are a proactive memory assistant.
-    Analyze the CURRENT ENTRY against the user's HISTORY.
+    You are a proactive memory assistant analyzing journal entries.
+    Today's date: ${today.toLocaleDateString()}
+
+    INSIGHT TYPES (choose the most appropriate):
+    - "warning": Negative pattern recurring (same trigger → same negative outcome)
+    - "encouragement": User showing resilience or growth compared to past
+    - "pattern": Neutral observation of recurring theme
+    - "reminder": Direct callback to something user mentioned before
+    - "progress": Positive trend or improvement over time
+    - "streak": Consistent positive behavior (3+ occurrences)
+    - "absence": Something negative that used to appear frequently but hasn't lately
+
+    TIME-BOXING RULES (CRITICAL - respect these windows):
+    - "Recurring theme" requires 3+ mentions within 14 days (not spread over months)
+    - "Warning" patterns should be within 7 days to be relevant
+    - "Progress/streak" should compare against 30 days ago
+    - "Absence" means something appeared 3+ times in the past 30-60 days but not in the last 14 days
+    - Don't flag patterns from entries older than 60 days unless truly significant
+
+    RETURN found: true ONLY IF you identify:
+    - A recurring theme (3+ mentions within 14 days)
+    - A direct contradiction or progress from recent entries (within 7 days)
+    - A trigger pattern (similar situation → similar mood)
+    - Genuine progress compared to 30 days ago
+    - A notable absence of a previously frequent concern
+
+    If the connection feels forced, weak, or the entries are too old, return { "found": false }.
 
     Output JSON:
     {
       "found": true,
-      "type": "warning" | "encouragement" | "pattern" | "reminder",
-      "message": "Insightful observation...",
-      "followUpQuestions": ["Question 1?", "Question 2?"]
+      "type": "warning" | "encouragement" | "pattern" | "reminder" | "progress" | "streak" | "absence",
+      "message": "Concise, insightful observation (1-2 sentences max)",
+      "followUpQuestions": ["Relevant question 1?", "Relevant question 2?"]
     }
-
-    If no strong connection, return { "found": false }.
   `;
 
   try {
@@ -953,20 +1039,73 @@ const generateDailySynthesis = async (dayEntries) => {
   const reflectionEntries = dayEntries.filter(e => e.entry_type !== 'task');
   if (reflectionEntries.length === 0) return null;
   
-  const context = reflectionEntries.map(e => `[${e.createdAt.toLocaleTimeString()}] ${e.text}`).join('\n---\n');
+  const context = reflectionEntries.map((e, i) => `Entry ${i + 1} [${e.createdAt.toLocaleTimeString()}]: ${e.text}`).join('\n---\n');
   const prompt = `
-    Based on these journal entries from a single day, write a 2-3 sentence summary that:
-    1. Captures the emotional arc of the day (how feelings evolved)
-    2. Identifies any key themes or events
-    3. Notes any significant mood shifts
-    
-    Be warm and insightful. Do NOT use bullet points or headers. Just write flowing prose.
-    Return ONLY the summary text, nothing else.
+    You are summarizing journal entries from a single day.
+
+    1. Write a 2-3 sentence summary that captures:
+       - The emotional arc of the day (how feelings evolved)
+       - Key themes/events
+       - Any significant mood shifts
+
+    2. Then identify the key factors that most contributed to the person's overall mood.
+       Think in terms of specific events, thoughts, or situations.
+
+    Return a JSON object ONLY, no markdown, no extra text:
+
+    {
+      "summary": "2-3 sentence prose summary here",
+      "bullets": [
+        "Concise factor 1 (e.g. Morning anxiety about job search after email)",
+        "Concise factor 2",
+        "Concise factor 3"
+      ]
+    }
+
+    Rules:
+    - 3-6 bullets max.
+    - Each bullet should be 1 short sentence (max 15 words).
+    - Each bullet should clearly point to what was driving the mood (event/thought/situation).
+    - Do NOT include bullet characters like '-', '*', or '•' in the text.
   `;
   
   try {
     const result = await callGemini(prompt, context);
-    return result || null;
+    if (!result) return null;
+
+    try {
+      // Try multiple approaches to extract JSON from the response
+      let jsonStr = result;
+
+      // Approach 1: Extract content from markdown code blocks (handles ```json ... ``` or ``` ... ```)
+      const codeBlockMatch = result.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
+        jsonStr = codeBlockMatch[1];
+      } else {
+        // Approach 2: Simple strip of markdown markers
+        jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      }
+
+      // Approach 3: If still not valid JSON, try to find JSON object in the string
+      if (!jsonStr.startsWith('{')) {
+        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonStr = jsonMatch[0];
+        }
+      }
+
+      const parsed = JSON.parse(jsonStr.trim());
+      if (parsed && typeof parsed.summary === 'string' && Array.isArray(parsed.bullets)) {
+        return parsed;
+      }
+    } catch (parseErr) {
+      console.error('generateDailySynthesis JSON parse error:', parseErr, 'Raw result:', result);
+    }
+
+    // Fallback: try to display something readable if we can't parse JSON
+    // Strip any markdown code blocks for display
+    const cleanedResult = result.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim();
+    return { summary: cleanedResult, bullets: [] };
   } catch (e) {
     console.error('generateDailySynthesis error:', e);
     return null;
@@ -1343,32 +1482,45 @@ const MoodHeatmap = ({ entries, onDayClick }) => {
     return { entries: dayEntries, avgMood, volatility, hasEntries: dayEntries.length > 0 };
   };
 
-  const getMoodEmoji = (avgMood) => {
-    if (avgMood === null) return '⚪';
-    if (avgMood >= 0.75) return '😊';
-    if (avgMood >= 0.55) return '🙂';
-    if (avgMood >= 0.35) return '😐';
-    if (avgMood >= 0.15) return '😟';
-    return '😢';
+  const getMoodColor = (score) => {
+    if (typeof score !== 'number') return '#e5e7eb';
+    if (score >= 0.89) return '#15803d';
+    if (score >= 0.78) return '#16a34a';
+    if (score >= 0.67) return '#22c55e';
+    if (score >= 0.56) return '#84cc16';
+    if (score >= 0.44) return '#eab308';
+    if (score >= 0.33) return '#ea580c';
+    if (score >= 0.22) return '#dc2626';
+    if (score >= 0.11) return '#991b1b';
+    return '#7f1d1d';
   };
 
   return (
     <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm mb-6">
       <div className="flex items-center gap-2 mb-3 text-gray-700 font-semibold text-xs uppercase tracking-wide"><Activity size={14} /> Mood (30 Days)</div>
-      <div className="flex justify-between gap-0.5 flex-wrap">{days.map((d, i) => {
+      <div className="flex justify-between items-end gap-1">{days.map((d, i) => {
         const dayData = getDayData(d);
+        const { avgMood, hasEntries, volatility } = dayData;
         return (
           <button 
             key={i} 
-            className={`text-xl transition-transform hover:scale-125 ${dayData.hasEntries ? 'cursor-pointer' : 'cursor-default opacity-50'} ${dayData.volatility > 0.3 ? 'ring-2 ring-orange-300 rounded' : ''}`}
-            title={`${d.toLocaleDateString()}${dayData.entries.length > 0 ? ` - ${dayData.entries.length} entries` : ''}${dayData.volatility > 0.3 ? ' (high volatility)' : ''}`}
-            onClick={() => dayData.hasEntries && onDayClick && onDayClick(d, dayData)}
-            disabled={!dayData.hasEntries}
-          >
-            {getMoodEmoji(dayData.avgMood)}
-          </button>
+            className={`flex-1 rounded transition-all ${hasEntries ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+            style={{
+              backgroundColor: getMoodColor(avgMood),
+              height: avgMood !== null ? `${Math.max(20, avgMood * 60)}px` : '20px',
+              minWidth: '8px'
+            }}
+            title={`${d.toLocaleDateString()}${hasEntries ? `: ${dayData.entries.length} entries${avgMood !== null ? ` - ${(avgMood * 100).toFixed(0)}%` : ''}` : ': No entry'}`}
+            onClick={() => hasEntries && onDayClick && onDayClick(d, dayData)}
+            disabled={!hasEntries}
+          />
         );
       })}</div>
+      <div className="mt-3 flex justify-between items-center text-xs text-gray-500">
+        <span>Low</span>
+        <span className="text-gray-600 font-medium">Mood Scale</span>
+        <span>High</span>
+      </div>
     </div>
   );
 };
@@ -1422,7 +1574,21 @@ const DailySummaryModal = ({ date, dayData, onClose, onDelete, onUpdate }) => {
               <div className="flex items-center gap-2 text-indigo-700 font-semibold text-xs uppercase mb-2">
                 <Sparkles size={14} /> Daily Summary
               </div>
-              <p className="text-sm text-indigo-900 leading-relaxed">{synthesis}</p>
+              <p className="text-sm text-indigo-900 leading-relaxed">
+                {typeof synthesis === 'string' ? synthesis : synthesis.summary}
+              </p>
+              {synthesis.bullets && synthesis.bullets.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-indigo-200">
+                  <p className="text-xs font-semibold text-indigo-800 mb-2 uppercase tracking-wide">
+                    Key mood drivers
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-indigo-900/90">
+                    {synthesis.bullets.map((bullet, idx) => (
+                      <li key={idx}>{bullet}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
           
@@ -1822,6 +1988,8 @@ const EntryCard = ({ entry, onDelete, onUpdate }) => {
   const insightMsg = entry.contextualInsight?.message ? safeString(entry.contextualInsight.message) : null;
   const cbt = entry.analysis?.cbt_breakdown;
   const ventSupport = entry.analysis?.vent_support;
+  const celebration = entry.analysis?.celebration;
+  const taskAcknowledgment = entry.analysis?.task_acknowledgment;
 
   const toggleCategory = () => {
     const newCategory = entry.category === 'work' ? 'personal' : 'work';
@@ -1836,16 +2004,30 @@ const EntryCard = ({ entry, onDelete, onUpdate }) => {
     <div className={`rounded-xl p-5 shadow-sm border hover:shadow-md transition-shadow mb-4 relative overflow-hidden ${cardStyle}`}>
       {isPending && <div className="absolute top-0 left-0 right-0 h-1 bg-gray-100"><div className="h-full bg-indigo-500 animate-progress-indeterminate"></div></div>}
 
-      {/* Insight Box */}
-      {entry.contextualInsight?.found && insightMsg && !isTask && (
-        <div className={`mb-4 p-3 rounded-lg text-sm border flex gap-3 ${entry.contextualInsight.type === 'warning' ? 'bg-red-50 border-red-100 text-red-800' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
-          <Lightbulb size={18} className="shrink-0 mt-0.5"/>
-          <div>
-            <div className="font-bold text-[10px] uppercase opacity-75 tracking-wider mb-1">{safeString(entry.contextualInsight.type)}</div>
-            {insightMsg}
+      {/* Insight Box - now includes validation when both exist */}
+      {entry.contextualInsight?.found && insightMsg && !isTask && (() => {
+        const insightType = entry.contextualInsight.type;
+        const isPositive = ['progress', 'streak', 'absence', 'encouragement'].includes(insightType);
+        const isWarning = insightType === 'warning';
+        const colorClass = isWarning
+          ? 'bg-red-50 border-red-100 text-red-800'
+          : isPositive
+            ? 'bg-green-50 border-green-100 text-green-800'
+            : 'bg-blue-50 border-blue-100 text-blue-800';
+        return (
+          <div className={`mb-4 p-3 rounded-lg text-sm border flex gap-3 ${colorClass}`}>
+            <Lightbulb size={18} className="shrink-0 mt-0.5"/>
+            <div>
+              <div className="font-bold text-[10px] uppercase opacity-75 tracking-wider mb-1">{safeString(insightType)}</div>
+              {insightMsg}
+              {/* Fold validation into insight when both exist */}
+              {cbt?.validation && (
+                <p className="mt-2 text-gray-600 italic border-t border-gray-200 pt-2">{cbt.validation}</p>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Vent Support Display */}
       {isVent && ventSupport && (
@@ -1864,16 +2046,43 @@ const EntryCard = ({ entry, onDelete, onUpdate }) => {
         </div>
       )}
 
+      {/* Celebration Display - for positive/win entries */}
+      {entry.analysis?.framework === 'celebration' && celebration && (
+        <div className="mb-4 space-y-3">
+          {celebration.affirmation && (
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-lg border border-green-100">
+              <div className="flex items-center gap-2 text-green-700 font-semibold text-xs uppercase mb-2">
+                <Sparkles size={14} /> Nice!
+              </div>
+              <p className="text-sm text-green-800">{celebration.affirmation}</p>
+              {celebration.amplify && (
+                <p className="text-xs text-green-600 mt-2 italic">{celebration.amplify}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Task Acknowledgment - for mixed entries with emotional weight */}
+      {isMixed && taskAcknowledgment && (
+        <p className="text-gray-500 italic text-sm mb-4">{taskAcknowledgment}</p>
+      )}
+
       {/* Enhanced CBT Breakdown with Visual Hierarchy */}
       {entry.analysis?.framework === 'cbt' && cbt && (
         <div className="mb-4 space-y-3">
-          {/* Validation - italicized gray, appears first */}
-          {cbt.validation && (
+          {/* Validation - italicized gray, appears first (only if no insight to fold into) */}
+          {cbt.validation && !entry.contextualInsight?.found && (
             <p className="text-gray-500 italic text-sm">{cbt.validation}</p>
           )}
-          
-          {/* Distortion Badge */}
+
+          {/* Distortion Badge - only show if mood < 0.4 OR serious distortion type */}
           {cbt.distortion && (
+            entry.analysis?.mood_score < 0.4 ||
+            ['Catastrophizing', 'All-or-Nothing Thinking', 'All-or-Nothing', 'Mind Reading', 'Fortune Telling', 'Emotional Reasoning'].some(d =>
+              cbt.distortion?.toLowerCase().includes(d.toLowerCase())
+            )
+          ) && (
             <div className="flex items-center gap-2">
               <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
                 <Info size={12} />
@@ -1881,30 +2090,38 @@ const EntryCard = ({ entry, onDelete, onUpdate }) => {
               </span>
             </div>
           )}
-          
+
           {/* Automatic Thought */}
           {cbt.automatic_thought && (
             <div className="text-sm text-gray-700">
               <span className="font-semibold">Thought:</span> {cbt.automatic_thought}
             </div>
           )}
-          
-          {/* Socratic Question - blue highlight box */}
-          {cbt.socratic_question && (
+
+          {/* NEW: Combined Perspective card (question + reframe) */}
+          {cbt.perspective && (
+            <div className="bg-gradient-to-r from-blue-50 to-green-50 p-3 rounded-lg border-l-4 border-blue-400">
+              <div className="text-xs font-semibold text-blue-600 uppercase mb-1">💭 Perspective</div>
+              <p className="text-sm text-gray-700">{cbt.perspective}</p>
+            </div>
+          )}
+
+          {/* LEGACY: Socratic Question - for backwards compatibility with old entries */}
+          {!cbt.perspective && cbt.socratic_question && (
             <div className="bg-blue-50 p-3 rounded-lg border-l-4 border-blue-400">
               <div className="text-xs font-semibold text-blue-600 uppercase mb-1">Reflect:</div>
               <p className="text-sm text-blue-800">{cbt.socratic_question}</p>
             </div>
           )}
-          
-          {/* Cognitive Reframe - green text */}
-          {(cbt.suggested_reframe || cbt.challenge) && (
+
+          {/* LEGACY: Cognitive Reframe - for backwards compatibility with old entries */}
+          {!cbt.perspective && (cbt.suggested_reframe || cbt.challenge) && (
             <div className="text-sm">
               <span className="text-green-700 font-semibold">Try thinking:</span>{' '}
               <span className="text-green-800">{cbt.suggested_reframe || cbt.challenge}</span>
             </div>
           )}
-          
+
           {/* Behavioral Activation - purple action card */}
           {cbt.behavioral_activation && (
             <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
@@ -2262,10 +2479,9 @@ const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, c
   
   const handleRefresh = () => {
     setIsRefreshing(true);
-    const promptBank = category === 'work' ? WORK_PROMPTS : PERSONAL_PROMPTS;
-    const newPrompts = getPromptsForSession(promptBank, 3);
-    setDisplayPrompts(newPrompts);
-    if (onRefreshPrompts) onRefreshPrompts(newPrompts);
+    const result = getPromptsForSession(category, []);
+    setDisplayPrompts(result.prompts);
+    if (onRefreshPrompts) onRefreshPrompts(result.prompts);
     setTimeout(() => setIsRefreshing(false), 300);
   };
 
@@ -2278,7 +2494,7 @@ const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, c
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
-      const recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 16000 });
+      const recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 128000 });
       const chunks = [];
 
       recorder.ondataavailable = e => chunks.push(e.data);
@@ -2797,9 +3013,19 @@ export default function App() {
           if (analysis?.cbt_breakdown && typeof analysis.cbt_breakdown === 'object' && Object.keys(analysis.cbt_breakdown).length > 0) {
             updateData.analysis.cbt_breakdown = analysis.cbt_breakdown;
           }
-          
+
           if (analysis?.vent_support) {
             updateData.analysis.vent_support = analysis.vent_support;
+          }
+
+          // Celebration framework for positive entries
+          if (analysis?.celebration && typeof analysis.celebration === 'object') {
+            updateData.analysis.celebration = analysis.celebration;
+          }
+
+          // Task acknowledgment for mixed entries
+          if (analysis?.task_acknowledgment) {
+            updateData.analysis.task_acknowledgment = analysis.task_acknowledgment;
           }
 
           if (insight?.found) {
