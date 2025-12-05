@@ -953,20 +953,50 @@ const generateDailySynthesis = async (dayEntries) => {
   const reflectionEntries = dayEntries.filter(e => e.entry_type !== 'task');
   if (reflectionEntries.length === 0) return null;
   
-  const context = reflectionEntries.map(e => `[${e.createdAt.toLocaleTimeString()}] ${e.text}`).join('\n---\n');
+  const context = reflectionEntries.map((e, i) => `Entry ${i + 1} [${e.createdAt.toLocaleTimeString()}]: ${e.text}`).join('\n---\n');
   const prompt = `
-    Based on these journal entries from a single day, write a 2-3 sentence summary that:
-    1. Captures the emotional arc of the day (how feelings evolved)
-    2. Identifies any key themes or events
-    3. Notes any significant mood shifts
-    
-    Be warm and insightful. Do NOT use bullet points or headers. Just write flowing prose.
-    Return ONLY the summary text, nothing else.
+    You are summarizing journal entries from a single day.
+
+    1. Write a 2-3 sentence summary that captures:
+       - The emotional arc of the day (how feelings evolved)
+       - Key themes/events
+       - Any significant mood shifts
+
+    2. Then identify the key factors that most contributed to the person's overall mood.
+       Think in terms of specific events, thoughts, or situations.
+
+    Return a JSON object ONLY, no markdown, no extra text:
+
+    {
+      "summary": "2-3 sentence prose summary here",
+      "bullets": [
+        "Concise factor 1 (e.g. Morning anxiety about job search after email)",
+        "Concise factor 2",
+        "Concise factor 3"
+      ]
+    }
+
+    Rules:
+    - 3-6 bullets max.
+    - Each bullet should be 1 short sentence (max 15 words).
+    - Each bullet should clearly point to what was driving the mood (event/thought/situation).
+    - Do NOT include bullet characters like '-', '*', or '•' in the text.
   `;
   
   try {
     const result = await callGemini(prompt, context);
-    return result || null;
+    if (!result) return null;
+    
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed && typeof parsed.summary === 'string' && Array.isArray(parsed.bullets)) {
+        return parsed;
+      }
+    } catch (parseErr) {
+      console.error('generateDailySynthesis JSON parse error:', parseErr);
+    }
+    
+    return { summary: result, bullets: [] };
   } catch (e) {
     console.error('generateDailySynthesis error:', e);
     return null;
@@ -1435,7 +1465,21 @@ const DailySummaryModal = ({ date, dayData, onClose, onDelete, onUpdate }) => {
               <div className="flex items-center gap-2 text-indigo-700 font-semibold text-xs uppercase mb-2">
                 <Sparkles size={14} /> Daily Summary
               </div>
-              <p className="text-sm text-indigo-900 leading-relaxed">{synthesis}</p>
+              <p className="text-sm text-indigo-900 leading-relaxed">
+                {typeof synthesis === 'string' ? synthesis : synthesis.summary}
+              </p>
+              {synthesis.bullets && synthesis.bullets.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-indigo-200">
+                  <p className="text-xs font-semibold text-indigo-800 mb-2 uppercase tracking-wide">
+                    Key mood drivers
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-indigo-900/90">
+                    {synthesis.bullets.map((bullet, idx) => (
+                      <li key={idx}>{bullet}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
           
