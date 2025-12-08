@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Mic, Square, Trash2, Search, LogOut, Loader2, Sparkles, MessageCircle, X, Send,
-  Lightbulb, Edit2, Check, Share, LogIn, Activity, AlertTriangle, TrendingUp, TrendingDown,
-  Database, Briefcase, User as UserIcon, Keyboard, RefreshCw, Calendar, MessageSquarePlus,
-  Brain, Volume2, StopCircle, Bell, Headphones, Shield, Phone, Heart, Plus, ChevronRight,
-  FileText, Clipboard, Info, Wind, Droplets, Hand, Footprints, Download, CheckSquare, BarChart3,
-  Menu
+  Mic, Loader2, LogIn, Activity, Brain, Share,
+  User as UserIcon, Briefcase, X
 } from 'lucide-react';
 
 // Config
@@ -14,13 +10,11 @@ import {
   onAuthStateChanged, signOut, signInWithCustomToken,
   GoogleAuthProvider, signInWithPopup,
   collection, addDoc, query, orderBy, onSnapshot,
-  Timestamp, deleteDoc, doc, updateDoc, limit, getDocs, setDoc
+  Timestamp, deleteDoc, doc, updateDoc, limit, setDoc
 } from './config/firebase';
-import { AI_CONFIG, GEMINI_API_KEY, OPENAI_API_KEY } from './config/ai';
 import {
   APP_COLLECTION_ID, CURRENT_CONTEXT_VERSION,
-  CRISIS_KEYWORDS, WARNING_INDICATORS, DEFAULT_SAFETY_PLAN,
-  PERSONAL_PROMPTS, WORK_PROMPTS
+  DEFAULT_SAFETY_PLAN
 } from './config/constants';
 
 // Utils
@@ -29,12 +23,11 @@ import { safeDate } from './utils/date';
 import { sanitizeEntry } from './utils/entries';
 
 // Services
-import { callGemini, callOpenAI, generateEmbedding, cosineSimilarity, findRelevantMemories, transcribeAudio } from './services/ai';
+import { generateEmbedding, findRelevantMemories, transcribeAudio } from './services/ai';
 import {
-  classifyEntry, analyzeEntry, generateInsight, extractEnhancedContext,
-  computeMoodTrajectory, detectCyclicalPatterns, askJournalAI
+  classifyEntry, analyzeEntry, generateInsight, extractEnhancedContext
 } from './services/analysis';
-import { checkCrisisKeywords, checkWarningIndicators, checkLongitudinalRisk, analyzeLongitudinalPatterns } from './services/safety';
+import { checkCrisisKeywords, checkWarningIndicators, checkLongitudinalRisk } from './services/safety';
 import { retrofitEntriesInBackground } from './services/entries';
 
 // Hooks
@@ -2466,27 +2459,26 @@ export default function App() {
   const [showDecompression, setShowDecompression] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
   const [promptMode, setPromptMode] = useState(null);
-  
+
   // Safety features (Phase 0)
   const [safetyPlan, setSafetyPlan] = useState(DEFAULT_SAFETY_PLAN);
   const [showSafetyPlan, setShowSafetyPlan] = useState(false);
   const [crisisModal, setCrisisModal] = useState(null);
   const [crisisResources, setCrisisResources] = useState(null);
   const [pendingEntry, setPendingEntry] = useState(null);
-  
+
   // Daily Summary Modal (Phase 2)
   const [dailySummaryModal, setDailySummaryModal] = useState(null);
-  
+
   // Therapist Export (Phase 3)
   const [showExport, setShowExport] = useState(false);
-  
+
   // Insights Panel (Phase 4)
   const [showInsights, setShowInsights] = useState(false);
 
   // Auth
   useEffect(() => {
     const init = async () => {
-      // FIX: Proper window check for global variable
       if (typeof window !== 'undefined' && typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
         try {
           await signInWithCustomToken(auth, window.__initial_auth_token);
@@ -2516,13 +2508,11 @@ export default function App() {
   useEffect(() => {
     if (!user || entries.length === 0 || retrofitStarted.current) return;
 
-    // Check if any entries need retrofitting
     const needsRetrofit = entries.some(e => (e.context_version || 0) < CURRENT_CONTEXT_VERSION);
     if (!needsRetrofit) return;
 
     retrofitStarted.current = true;
 
-    // Start retrofit in background after a short delay to let UI settle
     const timeoutId = setTimeout(() => {
       console.log('Starting background retrofit of entries...');
       retrofitEntriesInBackground(
@@ -2536,7 +2526,7 @@ export default function App() {
         console.error('Retrofit failed:', err);
         setRetrofitProgress(null);
       });
-    }, 3000); // Wait 3 seconds before starting
+    }, 3000);
 
     return () => clearTimeout(timeoutId);
   }, [user, entries]);
@@ -2628,7 +2618,7 @@ export default function App() {
   // Collect all follow-up questions from recent entries
   const availablePrompts = useMemo(() => {
     const prompts = [];
-    const recentEntries = visible.slice(0, 10); // Look at last 10 entries
+    const recentEntries = visible.slice(0, 10);
 
     recentEntries.forEach(entry => {
       if (entry.contextualInsight?.found && entry.contextualInsight.followUpQuestions) {
@@ -2639,18 +2629,17 @@ export default function App() {
           if (q && !prompts.includes(q)) prompts.push(q);
         });
       }
-      // Handle legacy single followUpQuestion field
       if (entry.contextualInsight?.followUpQuestion && !prompts.includes(entry.contextualInsight.followUpQuestion)) {
         prompts.push(entry.contextualInsight.followUpQuestion);
       }
     });
 
-    return prompts.slice(0, 5); // Return max 5 prompts
+    return prompts.slice(0, 5);
   }, [visible]);
 
   const handleCrisisResponse = useCallback(async (response) => {
     setCrisisModal(null);
-    
+
     if (response === 'okay') {
       if (pendingEntry) {
         await doSaveEntry(pendingEntry.text, pendingEntry.safetyFlagged, response);
@@ -2683,30 +2672,30 @@ export default function App() {
     const embedding = await generateEmbedding(finalTex);
     const related = findRelevantMemories(embedding, entries, cat);
     const recent = entries.slice(0, 5);
-    
+
     const hasWarning = checkWarningIndicators(finalTex);
 
     try {
       const entryData = {
-        text: finalTex, 
-        category: cat, 
-        analysisStatus: 'pending', 
+        text: finalTex,
+        category: cat,
+        analysisStatus: 'pending',
         embedding,
-        createdAt: Timestamp.now(), 
+        createdAt: Timestamp.now(),
         userId: user.uid
       };
-      
+
       if (safetyFlagged) {
         entryData.safety_flagged = true;
         if (safetyUserResponse) {
           entryData.safety_user_response = safetyUserResponse;
         }
       }
-      
+
       if (hasWarning) {
         entryData.has_warning_indicators = true;
       }
-      
+
       const ref = await addDoc(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries'), entryData);
 
       setProcessing(false);
@@ -2720,7 +2709,6 @@ export default function App() {
           const classification = await classifyEntry(finalTex);
           console.log('Entry classification:', classification);
 
-          // Run analysis, insight generation, and enhanced context extraction in parallel
           const [analysis, insight, enhancedContext] = await Promise.all([
             analyzeEntry(finalTex, classification.entry_type),
             classification.entry_type !== 'task' ? generateInsight(finalTex, related, recent, entries) : Promise.resolve(null),
@@ -2733,7 +2721,6 @@ export default function App() {
             setShowDecompression(true);
           }
 
-          // Merge topic tags from analysis with structured tags from enhanced context
           const topicTags = analysis?.tags || [];
           const structuredTags = enhancedContext?.structured_tags || [];
           const contextTopicTags = enhancedContext?.topic_tags || [];
@@ -2748,16 +2735,14 @@ export default function App() {
             context_version: CURRENT_CONTEXT_VERSION
           };
 
-          // Store situation continuation info if detected
           if (enhancedContext?.continues_situation) {
             updateData.continues_situation = enhancedContext.continues_situation;
           }
 
-          // Store goal update info if detected
           if (enhancedContext?.goal_update?.tag) {
             updateData.goal_update = enhancedContext.goal_update;
           }
-          
+
           if (classification.extracted_tasks && classification.extracted_tasks.length > 0) {
             updateData.extracted_tasks = classification.extracted_tasks.map(t => ({ text: t, completed: false }));
           }
@@ -2775,12 +2760,10 @@ export default function App() {
             updateData.analysis.vent_support = analysis.vent_support;
           }
 
-          // Celebration framework for positive entries
           if (analysis?.celebration && typeof analysis.celebration === 'object') {
             updateData.analysis.celebration = analysis.celebration;
           }
 
-          // Task acknowledgment for mixed entries
           if (analysis?.task_acknowledgment) {
             updateData.analysis.task_acknowledgment = analysis.task_acknowledgment;
           }
@@ -2831,16 +2814,16 @@ export default function App() {
   const saveEntry = async (textInput) => {
     if (!user) return;
     setProcessing(true);
-    
+
     const hasCrisis = checkCrisisKeywords(textInput);
-    
+
     if (hasCrisis) {
       setPendingEntry({ text: textInput, safetyFlagged: true });
       setCrisisModal(true);
       setProcessing(false);
       return;
     }
-    
+
     await doSaveEntry(textInput);
   };
 
@@ -2854,7 +2837,6 @@ export default function App() {
       return;
     }
 
-    // Handle different error types with specific messages
     if (transcript === 'API_RATE_LIMIT') {
       alert("Too many requests - please wait a moment and try again");
       setProcessing(false);
@@ -2888,18 +2870,10 @@ export default function App() {
     await saveEntry(transcript);
   };
 
-  const handleReply = (question) => {
-    setReplyContext(question);
-    setMode('recording_voice');
-  };
-
   const handlePromptSave = async (data, mimeType) => {
-    // Handle both text and audio from PromptScreen
     if (typeof data === 'string' && !mimeType) {
-      // Text entry
       await saveEntry(data);
     } else {
-      // Audio entry
       await handleAudioWrapper(data, mimeType);
     }
   };
@@ -2927,7 +2901,7 @@ export default function App() {
       )}
 
       {crisisModal && (
-        <CrisisSoftBlockModal 
+        <CrisisSoftBlockModal
           onResponse={handleCrisisResponse}
           onClose={() => {
             setCrisisModal(null);
@@ -2935,9 +2909,9 @@ export default function App() {
           }}
         />
       )}
-      
+
       {crisisResources && (
-        <CrisisResourcesScreen 
+        <CrisisResourcesScreen
           level={crisisResources}
           onClose={() => {
             setCrisisResources(null);
@@ -2946,15 +2920,15 @@ export default function App() {
           onContinue={handleCrisisResourcesContinue}
         />
       )}
-      
+
       {showSafetyPlan && (
-        <SafetyPlanScreen 
+        <SafetyPlanScreen
           plan={safetyPlan}
           onUpdate={updateSafetyPlan}
           onClose={() => setShowSafetyPlan(false)}
         />
       )}
-      
+
       {dailySummaryModal && (
         <DailySummaryModal
           date={dailySummaryModal.date}
@@ -2964,14 +2938,14 @@ export default function App() {
           onUpdate={(id, d) => updateDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', id), d)}
         />
       )}
-      
+
       {showExport && (
         <TherapistExportScreen
           entries={entries}
           onClose={() => setShowExport(false)}
         />
       )}
-      
+
       {showInsights && (
         <InsightsPanel
           entries={entries}
@@ -3040,7 +3014,7 @@ export default function App() {
           loading={processing}
           category={cat}
         />
-      ) : mode === 'recording_voice' ?(
+      ) : mode === 'recording_voice' ? (
         <VoiceRecorder onSave={handleAudioWrapper} onSwitch={() => setMode('recording_text')} loading={processing} />
       ) : mode === 'recording_text' ? (
         <TextInput onSave={saveEntry} onCancel={() => {setMode('idle'); setReplyContext(null);}} loading={processing} />
