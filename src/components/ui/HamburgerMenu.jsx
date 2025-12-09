@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, BarChart3, FileText, Bell, MessageCircle, Phone, LogOut } from 'lucide-react';
 
 const HamburgerMenu = ({
@@ -28,41 +29,52 @@ const HamburgerMenu = ({
   }, [isOpen]);
 
   const menuItems = [
-    { icon: BarChart3, label: 'View Patterns', onClick: onShowInsights, color: 'text-gray-600' },
-    { icon: FileText, label: 'Export for Therapist', onClick: onShowExport, color: 'text-gray-600' },
-    { icon: Bell, label: 'Notifications', onClick: onRequestPermission, color: notificationPermission === 'granted' ? 'text-indigo-600' : 'text-gray-400' },
-    { icon: MessageCircle, label: 'Text Chat', onClick: onOpenChat, color: 'text-gray-600' },
-    { icon: Phone, label: 'Voice Conversation', onClick: onOpenVoice, color: 'text-indigo-600' },
+    { icon: BarChart3, label: 'View Patterns', onClick: onShowInsights, color: 'text-warm-600' },
+    { icon: FileText, label: 'Export for Therapist', onClick: onShowExport, color: 'text-warm-600' },
+    { icon: Bell, label: 'Notifications', onClick: onRequestPermission, color: notificationPermission === 'granted' ? 'text-primary-600' : 'text-warm-400' },
+    { icon: MessageCircle, label: 'Text Chat', onClick: onOpenChat, color: 'text-warm-600' },
+    { icon: Phone, label: 'Voice Conversation', onClick: onOpenVoice, color: 'text-primary-600' },
     { icon: LogOut, label: 'Sign Out', onClick: onLogout, color: 'text-red-500', hoverBg: 'hover:bg-red-50' },
   ];
 
   return (
     <div className="relative" ref={menuRef}>
-      <button
+      <motion.button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 rounded-full hover:bg-gray-100 text-gray-600 transition-colors"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        className="p-2 rounded-full hover:bg-warm-100 text-warm-600 transition-colors"
         title="Menu"
       >
         <Menu size={20} />
-      </button>
+      </motion.button>
 
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-          {menuItems.map((item, index) => (
-            <button
-              key={index}
-              onClick={() => {
-                item.onClick();
-                setIsOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-sm ${item.color} ${item.hoverBg || 'hover:bg-gray-50'} transition-colors`}
-            >
-              <item.icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-soft-lg border border-warm-100 py-2 z-50"
+          >
+            {menuItems.map((item, index) => (
+              <motion.button
+                key={index}
+                onClick={() => {
+                  item.onClick();
+                  setIsOpen(false);
+                }}
+                whileHover={{ x: 4 }}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-body ${item.color} ${item.hoverBg || 'hover:bg-warm-50'} transition-colors`}
+              >
+                <item.icon size={18} />
+                <span>{item.label}</span>
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

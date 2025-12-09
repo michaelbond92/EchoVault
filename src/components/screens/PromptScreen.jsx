@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { X, MessageCircle, Sparkles, RefreshCw, Mic, Keyboard, Square, Loader2, Send } from 'lucide-react';
 import { getPromptsForSession } from '../../utils/prompts';
 
@@ -69,133 +70,179 @@ const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, c
   };
 
   return (
-    <div className="fixed inset-0 bg-white z-40 flex flex-col pt-[env(safe-area-inset-top)] animate-in slide-in-from-bottom-10 duration-200">
-      <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md">
-        <h2 className="font-bold text-lg flex gap-2 items-center"><MessageCircle size={20}/> New Entry</h2>
-        <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-full"><X size={24}/></button>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      className="fixed inset-0 bg-warm-50 z-40 flex flex-col pt-[env(safe-area-inset-top)]"
+    >
+      <div className="p-4 border-b border-primary-100 flex justify-between items-center bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-soft">
+        <h2 className="font-display font-bold text-lg flex gap-2 items-center"><MessageCircle size={20}/> New Entry</h2>
+        <motion.button
+          onClick={onClose}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          className="p-1 hover:bg-white/20 rounded-full"
+        >
+          <X size={24}/>
+        </motion.button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-warm-50">
         {displayPrompts.length > 0 && (
-          <div className="mb-4">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
             <div className="flex justify-between items-center mb-2">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-2">
-                <Sparkles size={12}/> Reflect on these
+              <h3 className="text-xs font-display font-bold text-warm-500 uppercase tracking-wide flex items-center gap-2">
+                <Sparkles size={12} className="text-accent"/> Reflect on these
               </h3>
               <button
                 onClick={handleRefresh}
-                className={`text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-transform ${isRefreshing ? 'animate-spin' : ''}`}
+                className={`text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1 transition-transform ${isRefreshing ? 'animate-spin' : ''}`}
                 title="Get new prompts"
               >
                 <RefreshCw size={14} />
                 Refresh
               </button>
             </div>
-            <div className={`bg-white rounded-xl p-4 border border-gray-200 shadow-sm transition-opacity ${isRefreshing ? 'opacity-50' : ''}`}>
+            <div className={`bg-white rounded-2xl p-4 border border-warm-200 shadow-soft transition-opacity ${isRefreshing ? 'opacity-50' : ''}`}>
               <div className="space-y-2">
                 {displayPrompts.map((prompt, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-indigo-500 text-xs mt-0.5">•</span>
-                    <p className="text-sm text-gray-700 italic">"{prompt}"</p>
-                  </div>
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className="flex items-start gap-2"
+                  >
+                    <span className="text-primary-500 text-xs mt-0.5">•</span>
+                    <p className="text-sm text-warm-700 italic font-body">"{prompt}"</p>
+                  </motion.div>
                 ))}
               </div>
             </div>
             <button
               onClick={() => onModeChange('skip')}
-              className="mt-2 text-xs text-gray-400 hover:text-gray-600"
+              className="mt-2 text-xs text-warm-400 hover:text-warm-600"
             >
               Skip prompts and write freely
             </button>
-          </div>
+          </motion.div>
         )}
 
         {!mode && (
-          <div className="mb-4">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Choose input method</h3>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
+            <h3 className="text-xs font-display font-bold text-warm-500 uppercase tracking-wide mb-2">Choose input method</h3>
             <div className="grid grid-cols-2 gap-3">
-              <button
+              <motion.button
                 onClick={() => onModeChange('voice')}
-                className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex flex-col items-center gap-2"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-gradient-to-r from-primary-500 to-primary-600 text-white p-6 rounded-2xl shadow-soft-lg hover:shadow-xl transition-all flex flex-col items-center gap-2"
               >
                 <Mic size={28} className="opacity-90"/>
-                <span className="font-bold text-base">Record</span>
-              </button>
-              <button
+                <span className="font-display font-bold text-base">Record</span>
+              </motion.button>
+              <motion.button
                 onClick={() => onModeChange('text')}
-                className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex flex-col items-center gap-2"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-gradient-to-r from-secondary-500 to-secondary-600 text-white p-6 rounded-2xl shadow-soft-lg hover:shadow-xl transition-all flex flex-col items-center gap-2"
               >
                 <Keyboard size={28} className="opacity-90"/>
-                <span className="font-bold text-base">Type</span>
-              </button>
+                <span className="font-display font-bold text-base">Type</span>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {mode === 'text' && (
-          <div className="mb-4">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Your thoughts</h3>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
+            <h3 className="text-xs font-display font-bold text-warm-500 uppercase tracking-wide mb-2">Your thoughts</h3>
             <textarea
               value={textValue}
               onChange={e => setTextValue(e.target.value)}
-              className="w-full border rounded-xl p-4 h-48 focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm"
+              className="w-full border border-warm-200 rounded-2xl p-4 h-48 focus:ring-2 focus:ring-primary-500 outline-none bg-white shadow-soft font-body text-warm-800"
               placeholder="Type your entry here... You can address the prompts above or write freely."
               autoFocus
             />
             <div className="flex justify-end gap-2 mt-3">
-              <button
+              <motion.button
                 onClick={() => {onModeChange(null); setTextValue('');}}
-                className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-4 py-2 text-warm-500 hover:bg-warm-100 rounded-xl font-medium"
               >
                 Back
-              </button>
-              <button
+              </motion.button>
+              <motion.button
                 onClick={() => onSave(textValue)}
                 disabled={!textValue.trim() || loading}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium flex gap-2 items-center hover:bg-indigo-700 disabled:bg-gray-300"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-6 py-2 bg-primary-600 text-white rounded-xl font-display font-medium flex gap-2 items-center hover:bg-primary-700 disabled:bg-warm-300"
               >
                 {loading ? <Loader2 className="animate-spin" size={18}/> : <Send size={18}/>} Save
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {mode === 'voice' && (
-          <div className="mb-4">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Voice recording</h3>
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm flex flex-col items-center gap-4">
-              <button
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
+            <h3 className="text-xs font-display font-bold text-warm-500 uppercase tracking-wide mb-2">Voice recording</h3>
+            <div className="bg-white rounded-2xl p-6 border border-warm-200 shadow-soft flex flex-col items-center gap-4">
+              <motion.button
                 onClick={recording ? stopRecording : startRecording}
                 disabled={loading}
-                className={`h-20 w-20 rounded-full flex items-center justify-center shadow-lg transition-all ${recording ? 'bg-red-500 scale-110 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'} disabled:opacity-50`}
+                whileHover={{ scale: recording ? 1 : 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                animate={recording ? { scale: [1, 1.1, 1] } : {}}
+                transition={recording ? { duration: 1.5, repeat: Infinity } : {}}
+                className={`h-20 w-20 rounded-full flex items-center justify-center shadow-soft-lg transition-all ${recording ? 'bg-red-500' : 'bg-primary-600 hover:bg-primary-700'} disabled:opacity-50`}
               >
                 {recording ? <Square className="text-white fill-current" size={32}/> : <Mic className="text-white" size={32}/>}
-              </button>
+              </motion.button>
 
               {recording && (
-                <div className="bg-gray-800 text-white text-sm font-mono py-1.5 px-3 rounded">
+                <div className="bg-warm-800 text-white text-sm font-mono py-1.5 px-3 rounded-lg">
                   {Math.floor(recordSeconds/60)}:{String(recordSeconds%60).padStart(2,'0')}
                 </div>
               )}
 
               {loading && (
-                <div className="flex items-center gap-2 text-indigo-600 font-medium">
+                <div className="flex items-center gap-2 text-primary-600 font-medium">
                   <Loader2 className="animate-spin" size={18}/> Processing...
                 </div>
               )}
 
               <button
                 onClick={() => onModeChange(null)}
-                className="text-sm text-gray-500 hover:text-gray-700 font-medium"
+                className="text-sm text-warm-500 hover:text-warm-700 font-medium"
                 disabled={recording || loading}
               >
                 Back
               </button>
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

@@ -1,31 +1,45 @@
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { Send, Loader2 } from 'lucide-react';
 
 const TextInput = ({ onSave, onCancel, loading }) => {
   const [val, setVal] = useState('');
 
   return (
-    <div className="fixed bottom-0 w-full bg-white border-t p-4 z-20 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom-10">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="fixed bottom-0 w-full bg-white/80 backdrop-blur-sm border-t border-warm-200 p-4 z-20 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-soft-lg"
+    >
       <div className="max-w-md mx-auto">
         <textarea
           value={val}
           onChange={e => setVal(e.target.value)}
-          className="w-full border rounded-xl p-3 mb-3 h-32 focus:ring-2 focus:ring-indigo-500 outline-none"
+          className="w-full border border-warm-200 rounded-2xl p-3 mb-3 h-32 focus:ring-2 focus:ring-primary-500 outline-none bg-white shadow-soft font-body text-warm-800"
           placeholder="Type your memory..."
           autoFocus
         />
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
-          <button
+          <motion.button
+            onClick={onCancel}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-4 py-2 text-warm-500 hover:bg-warm-100 rounded-xl font-medium"
+          >
+            Cancel
+          </motion.button>
+          <motion.button
             onClick={() => onSave(val)}
             disabled={!val.trim() || loading}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium flex gap-2 items-center hover:bg-indigo-700 disabled:bg-gray-300"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-4 py-2 bg-primary-600 text-white rounded-xl font-display font-medium flex gap-2 items-center hover:bg-primary-700 disabled:bg-warm-300"
           >
             {loading ? <Loader2 className="animate-spin" size={18}/> : <Send size={18}/>} Save
-          </button>
+          </motion.button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
