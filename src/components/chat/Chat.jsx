@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { X, Send, Mic, Headphones, Volume2, StopCircle, Database } from 'lucide-react';
 import MarkdownLite from '../ui/MarkdownLite';
 import VoiceRecorder from '../input/VoiceRecorder';
@@ -239,10 +240,14 @@ Remember: You're having a real conversation. Reference what they've shared, ask 
   };
 
   return (
-    <div className="fixed inset-0 bg-white z-50 flex flex-col pt-[env(safe-area-inset-top)] animate-in slide-in-from-bottom-10 duration-200">
-      <div className="p-4 border-b flex justify-between items-center bg-indigo-600 text-white shadow-md">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="fixed inset-0 bg-white z-50 flex flex-col pt-[env(safe-area-inset-top)]"
+    >
+      <div className="p-4 border-b border-primary-100 flex justify-between items-center bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-soft">
         <div className="flex gap-2 items-center">
-          <button
+          <motion.button
             onClick={() => {
               const newMode = !conversationMode;
               setConversationMode(newMode);
@@ -256,53 +261,80 @@ Remember: You're having a real conversation. Reference what they've shared, ask 
                 setVoiceInput(false);
               }
             }}
-            className={`p-1 rounded-full transition-colors ${conversationMode ? 'bg-white/20 text-yellow-300' : 'hover:bg-indigo-700'}`}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            className={`p-1 rounded-full transition-colors ${conversationMode ? 'bg-white/20 text-accent' : 'hover:bg-white/10'}`}
           >
             <Headphones size={20} className={conversationMode ? "animate-pulse" : ""} />
-          </button>
-          <span className="font-bold text-lg">Journal Assistant ({category})</span>
+          </motion.button>
+          <span className="font-display font-bold text-lg">Journal Assistant ({category})</span>
         </div>
-        <button onClick={onClose} className="p-1 hover:bg-indigo-700 rounded-full"><X size={24}/></button>
+        <motion.button
+          onClick={onClose}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          className="p-1 hover:bg-white/10 rounded-full"
+        >
+          <X size={24}/>
+        </motion.button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-warm-50">
         {msgs.map((m, i) => (
-          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[85%] p-4 rounded-2xl text-sm shadow-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+          >
+            <div className={`max-w-[85%] p-4 rounded-2xl text-sm shadow-soft ${m.role === 'user' ? 'bg-primary-600 text-white rounded-br-none' : 'bg-white text-warm-800 border border-warm-200 rounded-bl-none'}`}>
               <MarkdownLite text={m.text} variant={m.role === 'user' ? 'light' : 'default'} />
               {m.role === 'ai' && m.sources && (
-                <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500 flex items-center gap-1">
+                <div className="mt-2 pt-2 border-t border-warm-200 text-xs text-warm-500 flex items-center gap-1">
                   <Database size={12} /> Based on {m.sources} relevant journal {m.sources === 1 ? 'entry' : 'entries'}
                 </div>
               )}
             </div>
             {m.role === 'ai' && (
-              <button onClick={() => speak(m.text)} className="mt-1 text-gray-400 hover:text-indigo-600 p-1">
+              <button onClick={() => speak(m.text)} className="mt-1 text-warm-400 hover:text-primary-600 p-1">
                 {isSpeaking ? <StopCircle size={16} /> : <Volume2 size={16} />}
               </button>
             )}
-          </div>
+          </motion.div>
         ))}
-        {loading && <div className="text-xs text-gray-400 p-2 text-center animate-pulse">Searching your journal...</div>}
+        {loading && <div className="text-xs text-warm-400 p-2 text-center animate-pulse">Searching your journal...</div>}
         <div ref={endRef} />
       </div>
 
       {voiceInput && (
-        <div className="absolute inset-x-0 bottom-0 h-48 bg-white border-t z-10 flex flex-col items-center justify-center animate-in slide-in-from-bottom-10">
-          <p className="mb-4 text-gray-500 font-medium">{conversationMode ? "Listening (Conversation Mode)..." : "Listening..."}</p>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute inset-x-0 bottom-0 h-48 bg-white border-t border-warm-200 z-10 flex flex-col items-center justify-center"
+        >
+          <p className="mb-4 text-warm-500 font-medium">{conversationMode ? "Listening (Conversation Mode)..." : "Listening..."}</p>
           <VoiceRecorder onSave={handleVoiceInput} onSwitch={() => setVoiceInput(false)} loading={false} minimal={true} />
           <button onClick={() => { setVoiceInput(false); setConversationMode(false); }} className="mt-4 text-sm text-red-500 font-medium">Cancel</button>
-        </div>
+        </motion.div>
       )}
 
-      <div className="p-4 bg-white border-t pb-[max(2rem,env(safe-area-inset-bottom))]">
-        <div className="flex gap-2 items-center bg-gray-50 p-1 rounded-full border border-gray-200 focus-within:ring-2 focus-within:ring-indigo-500">
-          <button onClick={() => setVoiceInput(true)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-full"><Mic size={20}/></button>
-          <input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} className="flex-1 bg-transparent border-none p-2 focus:ring-0 text-sm outline-none" placeholder="Say something..." />
-          <button onClick={() => send()} disabled={loading} className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"><Send size={18}/></button>
+      <div className="p-4 bg-white border-t border-warm-200 pb-[max(2rem,env(safe-area-inset-bottom))]">
+        <div className="flex gap-2 items-center bg-warm-50 p-1 rounded-full border border-warm-200 focus-within:ring-2 focus-within:ring-primary-500">
+          <button onClick={() => setVoiceInput(true)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-full"><Mic size={20}/></button>
+          <input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} className="flex-1 bg-transparent border-none p-2 focus:ring-0 text-sm outline-none font-body text-warm-800" placeholder="Say something..." />
+          <motion.button
+            onClick={() => send()}
+            disabled={loading}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="bg-primary-600 text-white p-2 rounded-full hover:bg-primary-700 disabled:bg-warm-300 transition-colors"
+          >
+            <Send size={18}/>
+          </motion.button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

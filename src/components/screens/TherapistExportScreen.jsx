@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { X, FileText, Loader2, Download, Check } from 'lucide-react';
 import { loadJsPDF } from '../../utils/pdf';
 
@@ -176,106 +177,127 @@ const TherapistExportScreen = ({ entries, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: "spring", duration: 0.3 }}
+        className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-soft-lg"
+      >
+        <div className="p-6 border-b border-primary-100 bg-gradient-to-r from-primary-500 to-primary-600 text-white">
           <div className="flex justify-between items-center">
             <div>
-              <h2 className="text-xl font-bold flex items-center gap-2"><FileText size={20} /> Export for Therapist</h2>
-              <p className="text-sm opacity-80 mt-1">Select entries to include in your export</p>
+              <h2 className="text-xl font-display font-bold flex items-center gap-2"><FileText size={20} /> Export for Therapist</h2>
+              <p className="text-sm opacity-80 mt-1 font-body">Select entries to include in your export</p>
             </div>
-            <button onClick={onClose} className="text-white/80 hover:text-white"><X size={24} /></button>
+            <motion.button
+              onClick={onClose}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="text-white/80 hover:text-white"
+            >
+              <X size={24} />
+            </motion.button>
           </div>
         </div>
 
-        <div className="p-4 border-b border-gray-100 bg-gray-50">
+        <div className="p-4 border-b border-warm-100 bg-warm-50">
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase block mb-1">From</label>
+              <label className="text-xs font-display font-semibold text-warm-500 uppercase block mb-1">From</label>
               <input
                 type="date"
                 value={dateRange.start}
                 onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                className="border rounded-lg px-3 py-2 text-sm"
+                className="border border-warm-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase block mb-1">To</label>
+              <label className="text-xs font-display font-semibold text-warm-500 uppercase block mb-1">To</label>
               <input
                 type="date"
                 value={dateRange.end}
                 onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                className="border rounded-lg px-3 py-2 text-sm"
+                className="border border-warm-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase block mb-1">Format</label>
+              <label className="text-xs font-display font-semibold text-warm-500 uppercase block mb-1">Format</label>
               <select
                 value={exportFormat}
                 onChange={e => setExportFormat(e.target.value)}
-                className="border rounded-lg px-3 py-2 text-sm"
+                className="border border-warm-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               >
                 <option value="pdf">PDF</option>
                 <option value="json">JSON</option>
               </select>
             </div>
             <div className="flex gap-2">
-              <button onClick={selectAll} className="text-xs text-indigo-600 hover:underline">Select All</button>
-              <button onClick={selectNone} className="text-xs text-gray-500 hover:underline">Clear</button>
+              <button onClick={selectAll} className="text-xs text-primary-600 hover:underline">Select All</button>
+              <button onClick={selectNone} className="text-xs text-warm-500 hover:underline">Clear</button>
             </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <p className="text-xs text-gray-500 mb-3">{selectedEntries.size} of {filteredEntries.length} entries selected</p>
+          <p className="text-xs text-warm-500 mb-3 font-body">{selectedEntries.size} of {filteredEntries.length} entries selected</p>
           <div className="space-y-2">
-            {filteredEntries.map(entry => (
-              <div
+            {filteredEntries.map((entry, index) => (
+              <motion.div
                 key={entry.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.02 }}
                 onClick={() => toggleEntry(entry.id)}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                className={`p-3 rounded-2xl border cursor-pointer transition-all ${
                   selectedEntries.has(entry.id)
-                    ? 'border-indigo-500 bg-indigo-50'
-                    : 'border-gray-200 hover:border-gray-300'
+                    ? 'border-primary-500 bg-primary-50'
+                    : 'border-warm-200 hover:border-warm-300'
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mt-0.5 ${
-                    selectedEntries.has(entry.id) ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300'
+                  <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center mt-0.5 ${
+                    selectedEntries.has(entry.id) ? 'bg-primary-600 border-primary-600' : 'border-warm-300'
                   }`}>
                     {selectedEntries.has(entry.id) && <Check size={14} className="text-white" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs text-gray-400">{entry.createdAt.toLocaleDateString()}</span>
+                      <span className="text-xs text-warm-400">{entry.createdAt.toLocaleDateString()}</span>
                       {typeof entry.analysis?.mood_score === 'number' && (
                         <span className="text-sm">{getMoodEmoji(entry.analysis.mood_score)}</span>
                       )}
                     </div>
-                    <h4 className="font-medium text-gray-800 truncate">{entry.title}</h4>
-                    <p className="text-sm text-gray-500 line-clamp-2">{entry.text}</p>
+                    <h4 className="font-display font-medium text-warm-800 truncate">{entry.title}</h4>
+                    <p className="text-sm text-warm-500 line-clamp-2 font-body">{entry.text}</p>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
 
-        <div className="p-4 border-t border-gray-100 bg-gray-50">
-          <button
+        <div className="p-4 border-t border-warm-100 bg-warm-50">
+          <motion.button
             onClick={handleExport}
             disabled={exporting || selectedEntries.size === 0}
-            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            className="w-full bg-primary-600 text-white py-3 rounded-2xl font-display font-semibold flex items-center justify-center gap-2 hover:bg-primary-700 disabled:bg-warm-300 disabled:cursor-not-allowed"
           >
             {exporting ? (
               <><Loader2 size={18} className="animate-spin" /> Generating...</>
             ) : (
               <><Download size={18} /> Export {selectedEntries.size} Entries</>
             )}
-          </button>
+          </motion.button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 
