@@ -4,6 +4,33 @@
 
 ---
 
+## User Stories Roadmap
+
+| Phase | Feature Name | User Story |
+|-------|--------------|------------|
+| **Phase 1: Habit Foundation** | Streak & Consistency Tracking | As a journal user, I want to see my current journaling streak and milestones so that I stay motivated to journal consistently and build a lasting habit. |
+| **Phase 1: Habit Foundation** | Guided Breathing Exercises | As a user experiencing stress or anxiety, I want access to guided breathing exercises with visual animations so that I can actively calm myself when the app detects I need support. |
+| **Phase 1: Habit Foundation** | Smart Reminders | As a busy user, I want intelligent reminders that learn my optimal journaling times so that I receive supportive nudges when I'm most likely to journal without feeling nagged. |
+| **Phase 1: Habit Foundation** | Weekly/Monthly Reviews | As a reflective user, I want AI-generated summaries of my weekly and monthly patterns so that I can understand my emotional trends and celebrate my progress. |
+| **Phase 2: Growth & Insights** | Gratitude Framework | As a user seeking positivity, I want dedicated gratitude journaling with a "gratitude bank" so that I can practice evidence-backed gratitude exercises and revisit them during difficult times. |
+| **Phase 2: Growth & Insights** | Goal Tracking Dashboard | As a goal-oriented user, I want to set explicit goals and track progress across my entries so that I can see how my journaling connects to achieving my life objectives. |
+| **Phase 2: Growth & Insights** | Achievement System & Badges | As a motivated user, I want to earn badges and achievements for journaling milestones so that I feel rewarded for my consistency and engagement. |
+| **Phase 2: Growth & Insights** | Search & Discovery | As a long-term user, I want to search my entries by keyword, mood, or meaning so that I can quickly find past reflections and see "On This Day" memories. |
+| **Phase 3: Holistic Wellness** | Sleep & Activity Correlation | As a health-conscious user, I want my journal to integrate with Apple Health/Google Fit so that I can see how sleep and activity affect my mood patterns. |
+| **Phase 3: Holistic Wellness** | Therapist Collaboration Mode | As a user in therapy, I want to securely share selected entries with my therapist so that we can review my progress together and flag entries for discussion. |
+| **Phase 3: Holistic Wellness** | Onboarding & Tutorial Flow | As a new user, I want a guided introduction to EchoVault's features so that I understand how to get the most value from the app without feeling overwhelmed. |
+| **Phase 4: Rich Experiences** | Photo & Media Journaling | As a visual person, I want to attach photos to my entries and have AI analyze them so that I can capture moments beyond words and reflect on visual memories. |
+| **Phase 4: Rich Experiences** | Advanced Mood Analytics | As a data-driven user, I want detailed visualizations of my mood by time-of-day, day-of-week, and tag correlations so that I can identify specific triggers and patterns. |
+| **Phase 4: Rich Experiences** | Expanded CBT Toolkit | As a user working on mental health, I want structured CBT tools like thought records and behavioral experiments so that I can apply evidence-based techniques systematically. |
+| **Phase 4: Rich Experiences** | Entry Templates | As a user who struggles with blank pages, I want pre-built and custom templates (morning pages, evening reflection) so that I have structure to guide my journaling. |
+| **Phase 5: Personalization** | Multiple Journal Categories | As a user with diverse life areas, I want to create custom journal categories beyond personal/work so that I can track mood patterns per life domain (relationships, health, creativity). |
+| **Phase 5: Personalization** | Accountability Partner | As a user seeking support, I want to optionally share my journaling streaks and mood with a trusted friend so that I have external accountability and support. |
+| **Phase 5: Personalization** | End-to-End Encryption | As a privacy-conscious user, I want my entries encrypted before leaving my device so that only I can read my most sensitive reflections. |
+| **Phase 6: Future** | Audio Content Library | As a user seeking relaxation, I want access to guided meditations, sleep stories, and ambient soundscapes so that I can extend my wellness practice beyond journaling. |
+| **Phase 6: Future** | Relapse Prevention Mode | As a user in recovery, I want specialized tools like HALT checks, trigger libraries, and recovery milestones so that I have dedicated support for my recovery journey. |
+
+---
+
 ## Executive Summary
 
 After thoroughly analyzing EchoVault's current capabilities and researching industry-leading journaling apps, I've identified 20 high-impact features organized into tiers. The roadmap balances **quick wins** (features that leverage your existing AI infrastructure), **differentiators** (features that set EchoVault apart), and **industry standards** (features users expect from modern apps).
