@@ -2,7 +2,7 @@
 export { CrisisSoftBlockModal, DailySummaryModal, WeeklyReport, InsightsPanel } from './modals';
 
 // Screens
-export { CrisisResourcesScreen, SafetyPlanScreen, DecompressionScreen, TherapistExportScreen, PromptScreen } from './screens';
+export { CrisisResourcesScreen, SafetyPlanScreen, DecompressionScreen, TherapistExportScreen, PromptScreen, JournalScreen } from './screens';
 
 // Chat
 export { Chat, RealtimeConversation } from './chat';
@@ -15,3 +15,6 @@ export { VoiceRecorder, TextInput, NewEntryButton } from './input';
 
 // UI
 export { MarkdownLite, GetHelpButton, HamburgerMenu } from './ui';
+
+// Dashboard
+export { DayDashboard, EntryBar } from './dashboard';

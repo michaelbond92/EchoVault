@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, BarChart3, FileText, Bell, MessageCircle, Phone, LogOut } from 'lucide-react';
+import { Menu, BarChart3, FileText, Bell, MessageCircle, Phone, LogOut, BookOpen } from 'lucide-react';
 
 const HamburgerMenu = ({
   onShowInsights,
@@ -8,6 +8,7 @@ const HamburgerMenu = ({
   onRequestPermission,
   onOpenChat,
   onOpenVoice,
+  onOpenJournal,
   onLogout,
   notificationPermission
 }) => {
@@ -29,11 +30,12 @@ const HamburgerMenu = ({
   }, [isOpen]);
 
   const menuItems = [
+    { icon: BookOpen, label: 'Journal', onClick: onOpenJournal, color: 'text-primary-600' },
     { icon: BarChart3, label: 'View Patterns', onClick: onShowInsights, color: 'text-warm-600' },
     { icon: FileText, label: 'Export for Therapist', onClick: onShowExport, color: 'text-warm-600' },
-    { icon: Bell, label: 'Notifications', onClick: onRequestPermission, color: notificationPermission === 'granted' ? 'text-primary-600' : 'text-warm-400' },
     { icon: MessageCircle, label: 'Text Chat', onClick: onOpenChat, color: 'text-warm-600' },
     { icon: Phone, label: 'Voice Conversation', onClick: onOpenVoice, color: 'text-primary-600' },
+    { icon: Bell, label: 'Notifications', onClick: onRequestPermission, color: notificationPermission === 'granted' ? 'text-primary-600' : 'text-warm-400' },
     { icon: LogOut, label: 'Sign Out', onClick: onLogout, color: 'text-red-500', hoverBg: 'hover:bg-red-50' },
   ];
 
