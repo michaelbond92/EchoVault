@@ -1,13 +1,15 @@
 import { callGemini } from '../ai';
 import { computeMoodTrajectory, detectCyclicalPatterns } from '../analysis';
+import { generateProactiveContext, computeActivitySentiment } from '../patterns';
 
 /**
  * Prompt Priority Hierarchy:
- * 1. Open situations - "How did that meeting go?" (highest value - continuity)
- * 2. Goal check-ins - "Still planning to hit the gym?" (accountability)
- * 3. Pattern-based - "You usually feel anxious on Mondays. How are you feeling?"
- * 4. Mood trajectory - "You've been in a low stretch. What's one small win today?"
- * 5. Generic journaling - "What's on your mind?" (fallback)
+ * 1. Proactive context - Entity history, pattern triggers (NEW - highest value)
+ * 2. Open situations - "How did that meeting go?" (continuity)
+ * 3. Goal check-ins - "Still planning to hit the gym?" (accountability)
+ * 4. Pattern-based - "You usually feel anxious on Mondays. How are you feeling?"
+ * 5. Mood trajectory - "You've been in a low stretch. What's one small win today?"
+ * 6. Generic journaling - "What's on your mind?" (fallback)
  */
 
 const GENERIC_PROMPTS = [
@@ -238,6 +240,74 @@ const generateMoodPrompts = (entries) => {
 };
 
 /**
+ * Generate proactive prompts from pattern analysis
+ */
+const generateProactivePrompts = (entries, category) => {
+  const prompts = [];
+
+  try {
+    // Get proactive context from pattern analysis
+    const proactiveInsights = generateProactiveContext(entries, category, null, []);
+
+    // Convert insights to prompts
+    proactiveInsights.slice(0, 2).forEach(insight => {
+      let prompt = null;
+
+      switch (insight.type) {
+        case 'temporal_warning':
+          prompt = insight.message.replace(/tend to be/g, 'can be') + ' How are you doing?';
+          break;
+        case 'temporal_positive':
+          prompt = insight.message + ' What are you up to today?';
+          break;
+        case 'mood_suggestion':
+          prompt = insight.message + '. Would that help today?';
+          break;
+        default:
+          if (insight.message) {
+            prompt = insight.message;
+          }
+      }
+
+      if (prompt) {
+        prompts.push({
+          type: 'proactive',
+          prompt,
+          priority: insight.priority,
+          entity: insight.entity
+        });
+      }
+    });
+
+    // Also add activity-based prompts from patterns with strong sentiment
+    const activityPatterns = computeActivitySentiment(entries, category);
+    const recentPositive = activityPatterns
+      .filter(p => p.sentiment === 'positive' && p.entryCount >= 3 && p.moodDeltaPercent > 15)
+      .slice(0, 1);
+
+    recentPositive.forEach(pattern => {
+      const daysSinceLastMention = pattern.lastMentioned
+        ? Math.floor((new Date() - new Date(pattern.lastMentioned instanceof Date ? pattern.lastMentioned : pattern.lastMentioned?.toDate?.())) / (1000 * 60 * 60 * 24))
+        : null;
+
+      if (daysSinceLastMention && daysSinceLastMention > 5) {
+        prompts.push({
+          type: 'proactive',
+          prompt: `It's been a while since ${pattern.entityName}. That usually lifts your mood - thinking about it today?`,
+          priority: 'suggestion',
+          entity: pattern.entity
+        });
+      }
+    });
+
+  } catch (e) {
+    console.error('generateProactivePrompts error:', e);
+  }
+
+  return prompts;
+};
+
+/**
  * Main function to generate dashboard prompts
  * Returns 1-3 prompts based on priority hierarchy
  */
@@ -245,33 +315,43 @@ export const generateDashboardPrompts = async (entries, category = 'personal') =
   const categoryEntries = entries.filter(e => e.category === category);
   const allPrompts = [];
 
-  // Priority 1: Open situations
-  const situations = extractOpenSituations(categoryEntries);
-  if (situations.length > 0) {
-    const situationPrompts = await generateSituationPrompts(situations);
-    allPrompts.push(...situationPrompts.map(p => ({ type: 'situation', prompt: p })));
+  // Priority 1: Proactive context (NEW - pattern-based, entity history)
+  const proactivePrompts = generateProactivePrompts(categoryEntries, category);
+  if (proactivePrompts.length > 0) {
+    allPrompts.push(...proactivePrompts);
   }
 
-  // Priority 2: Goal check-ins
-  const goals = extractActiveGoals(categoryEntries);
-  if (goals.length > 0 && allPrompts.length < 2) {
-    const goalPrompts = await generateGoalPrompts(goals, categoryEntries);
-    allPrompts.push(...goalPrompts.map(p => ({ type: 'goal', prompt: p })));
+  // Priority 2: Open situations
+  if (allPrompts.length < 2) {
+    const situations = extractOpenSituations(categoryEntries);
+    if (situations.length > 0) {
+      const situationPrompts = await generateSituationPrompts(situations);
+      allPrompts.push(...situationPrompts.map(p => ({ type: 'situation', prompt: p })));
+    }
   }
 
-  // Priority 3: Pattern-based
+  // Priority 3: Goal check-ins
+  if (allPrompts.length < 2) {
+    const goals = extractActiveGoals(categoryEntries);
+    if (goals.length > 0) {
+      const goalPrompts = await generateGoalPrompts(goals, categoryEntries);
+      allPrompts.push(...goalPrompts.map(p => ({ type: 'goal', prompt: p })));
+    }
+  }
+
+  // Priority 4: Pattern-based (day of week)
   if (allPrompts.length < 2) {
     const patternPrompts = generatePatternPrompts(categoryEntries);
     allPrompts.push(...patternPrompts.map(p => ({ type: 'pattern', prompt: p })));
   }
 
-  // Priority 4: Mood trajectory
+  // Priority 5: Mood trajectory
   if (allPrompts.length < 2) {
     const moodPrompts = generateMoodPrompts(categoryEntries);
     allPrompts.push(...moodPrompts.map(p => ({ type: 'mood', prompt: p })));
   }
 
-  // Priority 5: Generic fallback
+  // Priority 6: Generic fallback
   if (allPrompts.length === 0) {
     const genericPool = category === 'work' ? WORK_GENERIC_PROMPTS : GENERIC_PROMPTS;
     const shuffled = [...genericPool].sort(() => Math.random() - 0.5);

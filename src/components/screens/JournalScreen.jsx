@@ -34,7 +34,7 @@ const JournalScreen = ({
       );
     }
 
-    // Apply date filter
+    // Apply date filter - use effectiveDate if available (Phase 2 backdating)
     if (selectedDate) {
       const dateStart = new Date(selectedDate);
       dateStart.setHours(0, 0, 0, 0);
@@ -42,9 +42,11 @@ const JournalScreen = ({
       dateEnd.setHours(23, 59, 59, 999);
 
       filtered = filtered.filter(e => {
-        const entryDate = e.createdAt instanceof Date
-          ? e.createdAt
-          : e.createdAt?.toDate?.() || new Date();
+        // Use effectiveDate if available, otherwise createdAt
+        const dateField = e.effectiveDate || e.createdAt;
+        const entryDate = dateField instanceof Date
+          ? dateField
+          : dateField?.toDate?.() || new Date();
         return entryDate >= dateStart && entryDate <= dateEnd;
       });
     }
@@ -52,14 +54,16 @@ const JournalScreen = ({
     return filtered;
   }, [entries, category, searchQuery, selectedDate]);
 
-  // Group entries by date
+  // Group entries by date - use effectiveDate if available (Phase 2 backdating)
   const groupedEntries = useMemo(() => {
     const groups = new Map();
 
     filteredEntries.forEach(entry => {
-      const entryDate = entry.createdAt instanceof Date
-        ? entry.createdAt
-        : entry.createdAt?.toDate?.() || new Date();
+      // Use effectiveDate if available, otherwise createdAt
+      const dateField = entry.effectiveDate || entry.createdAt;
+      const entryDate = dateField instanceof Date
+        ? dateField
+        : dateField?.toDate?.() || new Date();
       const dateKey = entryDate.toDateString();
 
       if (!groups.has(dateKey)) {

@@ -15,3 +15,12 @@ export * from './prompts';
 
 // Dashboard Services
 export * from './dashboard';
+
+// Temporal Services
+export * from './temporal';
+
+// RAG Services
+export * from './rag';
+
+// Pattern Services
+export * from './patterns';

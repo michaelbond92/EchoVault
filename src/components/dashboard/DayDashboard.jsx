@@ -218,15 +218,19 @@ const DayDashboard = ({
   const midnightTimeoutRef = useRef(null);
   const lastEntryCountRef = useRef(0);
 
-  // Filter today's entries
+  // Filter today's entries - use effectiveDate if available (Phase 2 backdating)
   const todayEntries = useMemo(() => {
     const today = getTodayStart();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
     return entries.filter(e => {
-      const entryDate = e.createdAt instanceof Date
-        ? e.createdAt
-        : e.createdAt?.toDate?.() || new Date();
-      return entryDate >= today && e.category === category;
+      // Use effectiveDate if available (for backdated entries), otherwise createdAt
+      const dateField = e.effectiveDate || e.createdAt;
+      const entryDate = dateField instanceof Date
+        ? dateField
+        : dateField?.toDate?.() || new Date();
+      return entryDate >= today && entryDate < tomorrow && e.category === category;
     });
   }, [entries, category]);
 

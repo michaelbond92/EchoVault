@@ -34,6 +34,7 @@ import {
 import { checkCrisisKeywords, checkWarningIndicators, checkLongitudinalRisk } from './services/safety';
 import { retrofitEntriesInBackground } from './services/entries';
 import { inferCategory } from './services/prompts';
+import { detectTemporalContext, needsConfirmation, formatEffectiveDate } from './services/temporal';
 
 // Hooks
 import { useIOSMeta } from './hooks/useIOSMeta';
@@ -235,6 +236,9 @@ export default function App() {
   // Journal Screen (Day Dashboard MVP)
   const [showJournal, setShowJournal] = useState(false);
 
+  // Temporal Context (Phase 2) - for backdating entries
+  const [pendingTemporalEntry, setPendingTemporalEntry] = useState(null);
+
   // Auth
   useEffect(() => {
     const init = async () => {
@@ -398,7 +402,7 @@ export default function App() {
     }
   }, [pendingEntry]);
 
-  const doSaveEntry = async (textInput, safetyFlagged = false, safetyUserResponse = null) => {
+  const doSaveEntry = async (textInput, safetyFlagged = false, safetyUserResponse = null, temporalContext = null) => {
     if (!user) return;
 
     let finalTex = textInput;
@@ -412,6 +416,12 @@ export default function App() {
 
     const hasWarning = checkWarningIndicators(finalTex);
 
+    // Calculate effectiveDate - either from temporal detection or current time
+    const now = new Date();
+    const effectiveDate = temporalContext?.detected && temporalContext?.effectiveDate
+      ? temporalContext.effectiveDate
+      : now;
+
     try {
       const entryData = {
         text: finalTex,
@@ -419,8 +429,20 @@ export default function App() {
         analysisStatus: 'pending',
         embedding,
         createdAt: Timestamp.now(),
+        effectiveDate: Timestamp.fromDate(effectiveDate),
         userId: user.uid
       };
+
+      // Store temporal context if detected
+      if (temporalContext?.detected) {
+        entryData.temporalContext = {
+          detected: true,
+          reference: temporalContext.reference,
+          originalPhrase: temporalContext.originalPhrase,
+          confidence: temporalContext.confidence,
+          backdated: effectiveDate.toDateString() !== now.toDateString()
+        };
+      }
 
       if (safetyFlagged) {
         entryData.safety_flagged = true;
@@ -549,8 +571,8 @@ export default function App() {
     if (!user) return;
     setProcessing(true);
 
+    // Check for crisis keywords first (safety priority)
     const hasCrisis = checkCrisisKeywords(textInput);
-
     if (hasCrisis) {
       setPendingEntry({ text: textInput, safetyFlagged: true });
       setCrisisModal(true);
@@ -558,7 +580,53 @@ export default function App() {
       return;
     }
 
-    await doSaveEntry(textInput);
+    // Detect temporal context (Phase 2)
+    try {
+      const temporal = await detectTemporalContext(textInput);
+      console.log('Temporal detection:', temporal);
+
+      if (temporal.detected) {
+        if (needsConfirmation(temporal)) {
+          // Medium confidence - ask user to confirm
+          setPendingTemporalEntry({
+            text: textInput,
+            temporal
+          });
+          setProcessing(false);
+          return;
+        }
+
+        // High confidence - auto-apply backdating
+        if (temporal.confidence > 0.8) {
+          console.log(`Auto-backdating entry to ${formatEffectiveDate(temporal.effectiveDate)}`);
+          await doSaveEntry(textInput, false, null, temporal);
+          return;
+        }
+      }
+
+      // No temporal context or low confidence - save with current date
+      await doSaveEntry(textInput);
+    } catch (e) {
+      console.error('Temporal detection failed, saving normally:', e);
+      await doSaveEntry(textInput);
+    }
+  };
+
+  // Handle temporal confirmation response
+  const handleTemporalConfirm = async (confirmed) => {
+    if (!pendingTemporalEntry) return;
+
+    const { text, temporal } = pendingTemporalEntry;
+    setPendingTemporalEntry(null);
+    setProcessing(true);
+
+    if (confirmed) {
+      // User confirmed - save with backdated date
+      await doSaveEntry(text, false, null, temporal);
+    } else {
+      // User declined - save with current date
+      await doSaveEntry(text, false, null, null);
+    }
   };
 
   const handleAudioWrapper = async (base64, mime) => {
@@ -669,6 +737,53 @@ export default function App() {
             setPendingEntry(null);
           }}
         />
+      )}
+
+      {/* Temporal Context Confirmation Modal */}
+      {pendingTemporalEntry && (
+        <Modal onClose={() => {
+          setPendingTemporalEntry(null);
+          setProcessing(false);
+        }}>
+          <ModalHeader onClose={() => {
+            setPendingTemporalEntry(null);
+            setProcessing(false);
+          }}>
+            <span className="text-warm-800">Add to a different day?</span>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-warm-600 mb-4 font-body">
+              It sounds like you're talking about{' '}
+              <span className="font-semibold text-primary-600">
+                {formatEffectiveDate(pendingTemporalEntry.temporal.effectiveDate)}
+              </span>
+              {pendingTemporalEntry.temporal.originalPhrase && (
+                <span className="text-warm-500">
+                  {' '}("{pendingTemporalEntry.temporal.originalPhrase}")
+                </span>
+              )}
+            </p>
+            <p className="text-warm-500 text-sm font-body">
+              Would you like this entry added to that day's summary instead of today?
+            </p>
+            <div className="flex gap-3 mt-6">
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={() => handleTemporalConfirm(false)}
+              >
+                Keep as Today
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
+                onClick={() => handleTemporalConfirm(true)}
+              >
+                Add to {formatEffectiveDate(pendingTemporalEntry.temporal.effectiveDate)}
+              </Button>
+            </div>
+          </ModalBody>
+        </Modal>
       )}
 
       {crisisResources && (
