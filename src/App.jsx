@@ -42,46 +42,12 @@ import { useNotifications } from './hooks/useNotifications';
 // Components
 import {
   CrisisSoftBlockModal, DailySummaryModal, WeeklyReport, InsightsPanel,
-  CrisisResourcesScreen, SafetyPlanScreen, DecompressionScreen, TherapistExportScreen, PromptScreen, JournalScreen,
+  CrisisResourcesScreen, SafetyPlanScreen, DecompressionScreen, TherapistExportScreen, JournalScreen,
   Chat, RealtimeConversation,
-  EntryCard, MoodHeatmap,
-  VoiceRecorder, TextInput, NewEntryButton,
+  MoodHeatmap,
   MarkdownLite, GetHelpButton, HamburgerMenu,
   DayDashboard, EntryBar
 } from './components';
-
-// --- Remaining App-specific functions ---
-
-const shuffleArray = (array) => {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-};
-
-const getPromptsForSession = (category, smartReflections) => {
-  if (smartReflections.length > 0) {
-    return { type: 'smart', prompts: smartReflections.slice(0, 3) };
-  }
-  
-  const bank = category === 'work' ? WORK_PROMPTS : PERSONAL_PROMPTS;
-  
-  // Track recently shown prompts in localStorage
-  const recentlyShown = JSON.parse(localStorage.getItem('recentPrompts') || '[]');
-  const available = bank.filter(p => !recentlyShown.includes(p.id));
-  const pool = available.length >= 3 ? available : bank;
-  const selected = shuffleArray(pool).slice(0, 3);
-  
-  // Update localStorage (keep last 10)
-  localStorage.setItem('recentPrompts', JSON.stringify([
-    ...selected.map(p => p.id),
-    ...recentlyShown
-  ].slice(0, 10)));
-  
-  return { type: 'standard', prompts: selected.map(p => p.text) };
-};
 
 // --- PDF LOADER (lazy-loads jsPDF from CDN) ---
 let jsPDFPromise = null;
@@ -246,12 +212,9 @@ export default function App() {
   const [entries, setEntries] = useState([]);
   const [view, setView] = useState('feed');
   const [cat, setCat] = useState('personal');
-  const [mode, setMode] = useState('idle');
   const [processing, setProcessing] = useState(false);
   const [replyContext, setReplyContext] = useState(null);
   const [showDecompression, setShowDecompression] = useState(false);
-  const [showPrompts, setShowPrompts] = useState(false);
-  const [promptMode, setPromptMode] = useState(null);
 
   // Safety features (Phase 0)
   const [safetyPlan, setSafetyPlan] = useState(DEFAULT_SAFETY_PLAN);
@@ -410,28 +373,6 @@ export default function App() {
   }, [user, entries.length]);
 
   const visible = useMemo(() => entries.filter(e => e.category === cat), [entries, cat]);
-
-  // Collect all follow-up questions from recent entries
-  const availablePrompts = useMemo(() => {
-    const prompts = [];
-    const recentEntries = visible.slice(0, 10);
-
-    recentEntries.forEach(entry => {
-      if (entry.contextualInsight?.found && entry.contextualInsight.followUpQuestions) {
-        const questions = Array.isArray(entry.contextualInsight.followUpQuestions)
-          ? entry.contextualInsight.followUpQuestions
-          : [entry.contextualInsight.followUpQuestions];
-        questions.forEach(q => {
-          if (q && !prompts.includes(q)) prompts.push(q);
-        });
-      }
-      if (entry.contextualInsight?.followUpQuestion && !prompts.includes(entry.contextualInsight.followUpQuestion)) {
-        prompts.push(entry.contextualInsight.followUpQuestion);
-      }
-    });
-
-    return prompts.slice(0, 5);
-  }, [visible]);
 
   const handleCrisisResponse = useCallback(async (response) => {
     setCrisisModal(null);
@@ -666,14 +607,6 @@ export default function App() {
     await saveEntry(transcript);
   };
 
-  const handlePromptSave = async (data, mimeType) => {
-    if (typeof data === 'string' && !mimeType) {
-      await saveEntry(data);
-    } else {
-      await handleAudioWrapper(data, mimeType);
-    }
-  };
-
   if (!user) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-warm-50 to-primary-50">
       <motion.div
@@ -846,7 +779,6 @@ export default function App() {
           category={cat}
           onPromptClick={(prompt) => {
             setReplyContext(prompt);
-            setMode('recording_text');
           }}
           onToggleTask={(task, source, index) => {
             console.log('Toggle task:', task, source, index);
@@ -873,6 +805,8 @@ export default function App() {
         onTextSave={saveEntry}
         loading={processing}
         disabled={false}
+        promptContext={replyContext}
+        onClearPrompt={() => setReplyContext(null)}
       />
 
       {/* Journal Screen (Timeline) */}

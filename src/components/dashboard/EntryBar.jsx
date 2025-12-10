@@ -9,8 +9,9 @@ import { Mic, Square, Keyboard, X, Loader2, Send } from 'lucide-react';
  * - One-tap voice recording (mic turns red and starts immediately)
  * - One-tap text input (keyboard opens immediately)
  * - Always visible at bottom of screen
+ * - Can show prompt context when responding to a prompt
  */
-const EntryBar = ({ onVoiceSave, onTextSave, loading, disabled }) => {
+const EntryBar = ({ onVoiceSave, onTextSave, loading, disabled, promptContext, onClearPrompt }) => {
   const [mode, setMode] = useState('idle'); // idle, recording, typing
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -25,6 +26,13 @@ const EntryBar = ({ onVoiceSave, onTextSave, loading, disabled }) => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  // Auto-open text mode when prompt context is provided
+  useEffect(() => {
+    if (promptContext && mode === 'idle') {
+      setMode('typing');
+    }
+  }, [promptContext]);
 
   // Focus text input when switching to typing mode
   useEffect(() => {
@@ -91,15 +99,21 @@ const EntryBar = ({ onVoiceSave, onTextSave, loading, disabled }) => {
 
   const handleTextSubmit = () => {
     if (textValue.trim()) {
-      onTextSave(textValue.trim());
+      // If responding to a prompt, prefix the entry with the context
+      const finalText = promptContext
+        ? `[Responding to: "${promptContext}"]\n\n${textValue.trim()}`
+        : textValue.trim();
+      onTextSave(finalText);
       setTextValue('');
       setMode('idle');
+      if (onClearPrompt) onClearPrompt();
     }
   };
 
   const handleTextCancel = () => {
     setTextValue('');
     setMode('idle');
+    if (onClearPrompt) onClearPrompt();
   };
 
   const handleKeyDown = (e) => {
@@ -145,6 +159,12 @@ const EntryBar = ({ onVoiceSave, onTextSave, loading, disabled }) => {
             exit={{ y: 100 }}
           >
             <div className="max-w-md mx-auto">
+              {/* Prompt Context Banner */}
+              {promptContext && (
+                <div className="mb-2 px-3 py-2 bg-primary-50 rounded-xl text-xs text-primary-700">
+                  <span className="font-semibold">Responding to:</span> "{promptContext}"
+                </div>
+              )}
               <div className="flex gap-2 items-end">
                 <div className="flex-1 relative">
                   <textarea
@@ -152,7 +172,7 @@ const EntryBar = ({ onVoiceSave, onTextSave, loading, disabled }) => {
                     value={textValue}
                     onChange={(e) => setTextValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="What's on your mind?"
+                    placeholder={promptContext ? "Your response..." : "What's on your mind?"}
                     className="w-full p-3 pr-10 border border-warm-200 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent min-h-[48px] max-h-[120px] font-body text-warm-800"
                     rows={1}
                     style={{ height: 'auto' }}
