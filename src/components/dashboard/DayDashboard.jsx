@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sun, Cloud, CloudRain, Sparkles, Target, AlertCircle,
@@ -6,6 +6,13 @@ import {
   ChevronRight, Lightbulb
 } from 'lucide-react';
 import { generateDashboardPrompts, generateDaySummary } from '../../services/prompts';
+import {
+  loadDashboardCache,
+  saveDashboardCache,
+  loadYesterdayCarryForward,
+  getTodayStart,
+  getMillisecondsUntilMidnight
+} from '../../services/dashboard';
 
 /**
  * DayDashboard - The main dashboard view showing today's summary
@@ -199,6 +206,7 @@ const MoodIndicator = ({ mood }) => {
 const DayDashboard = ({
   entries,
   category,
+  userId,
   onPromptClick,
   onToggleTask
 }) => {
@@ -206,11 +214,13 @@ const DayDashboard = ({
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [carryForwardItems, setCarryForwardItems] = useState([]);
+  const midnightTimeoutRef = useRef(null);
+  const lastEntryCountRef = useRef(0);
 
   // Filter today's entries
   const todayEntries = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getTodayStart();
 
     return entries.filter(e => {
       const entryDate = e.createdAt instanceof Date
@@ -222,22 +232,122 @@ const DayDashboard = ({
 
   const hasEntriesToday = todayEntries.length > 0;
 
+  // Midnight reset - schedule a refresh when midnight arrives
+  useEffect(() => {
+    const scheduleMidnightReset = () => {
+      const msUntilMidnight = getMillisecondsUntilMidnight();
+      console.log(`Scheduling midnight reset in ${Math.round(msUntilMidnight / 60000)} minutes`);
+
+      midnightTimeoutRef.current = setTimeout(() => {
+        console.log('Midnight reached - resetting dashboard');
+        // Reset state to trigger reload
+        setLoading(true);
+        setSummary(null);
+        setPrompts([]);
+        lastEntryCountRef.current = 0;
+        // Schedule the next midnight
+        scheduleMidnightReset();
+      }, msUntilMidnight);
+    };
+
+    scheduleMidnightReset();
+
+    return () => {
+      if (midnightTimeoutRef.current) {
+        clearTimeout(midnightTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Load carry-forward items from yesterday
+  useEffect(() => {
+    if (!userId) return;
+
+    const loadCarryForward = async () => {
+      const items = await loadYesterdayCarryForward(userId, category);
+      setCarryForwardItems(items);
+    };
+
+    loadCarryForward();
+  }, [userId, category]);
+
+  // Generate content with caching
+  const generateAndCacheContent = useCallback(async (useCache = true) => {
+    if (!userId) {
+      console.warn('No userId provided - skipping cache');
+      useCache = false;
+    }
+
+    // Try to load from cache first
+    if (useCache && userId) {
+      const cached = await loadDashboardCache(userId, category, todayEntries.length);
+      if (cached) {
+        if (cached.summary) {
+          // Merge carry-forward items if any
+          if (carryForwardItems.length > 0 && cached.summary.action_items) {
+            cached.summary.action_items.carried_forward = [
+              ...(cached.summary.action_items.carried_forward || []),
+              ...carryForwardItems.filter(
+                item => !cached.summary.action_items.carried_forward?.includes(item)
+              )
+            ];
+          }
+          setSummary(cached.summary);
+          setPrompts([]);
+        } else if (cached.prompts?.length > 0) {
+          setPrompts(cached.prompts);
+          setSummary(null);
+        }
+        return { cached: true };
+      }
+    }
+
+    // Generate fresh content
+    let newSummary = null;
+    let newPrompts = [];
+
+    if (hasEntriesToday) {
+      newSummary = await generateDaySummary(todayEntries, entries, category);
+      // Add carry-forward items
+      if (carryForwardItems.length > 0 && newSummary) {
+        newSummary.action_items = newSummary.action_items || {};
+        newSummary.action_items.carried_forward = [
+          ...(newSummary.action_items.carried_forward || []),
+          ...carryForwardItems
+        ];
+      }
+      setSummary(newSummary);
+      setPrompts([]);
+    } else {
+      newPrompts = await generateDashboardPrompts(entries, category);
+      setPrompts(newPrompts);
+      setSummary(null);
+    }
+
+    // Save to cache
+    if (userId) {
+      await saveDashboardCache(userId, category, {
+        summary: newSummary,
+        prompts: newPrompts,
+        entryCount: todayEntries.length
+      });
+    }
+
+    return { cached: false };
+  }, [userId, category, todayEntries, entries, hasEntriesToday, carryForwardItems]);
+
   // Load prompts or summary based on state
   useEffect(() => {
     const loadDashboardContent = async () => {
+      // Skip if entry count hasn't changed (avoid duplicate loads)
+      if (lastEntryCountRef.current === todayEntries.length && (summary || prompts.length > 0)) {
+        return;
+      }
+
       setLoading(true);
       try {
-        if (hasEntriesToday) {
-          // Active state - generate summary
-          const summaryData = await generateDaySummary(todayEntries, entries, category);
-          setSummary(summaryData);
-          setPrompts([]);
-        } else {
-          // Empty state - generate prompts
-          const promptData = await generateDashboardPrompts(entries, category);
-          setPrompts(promptData);
-          setSummary(null);
-        }
+        await generateAndCacheContent(true);
+        lastEntryCountRef.current = todayEntries.length;
       } catch (e) {
         console.error('Failed to load dashboard content:', e);
       } finally {
@@ -246,18 +356,13 @@ const DayDashboard = ({
     };
 
     loadDashboardContent();
-  }, [hasEntriesToday, todayEntries.length, category]);
+  }, [hasEntriesToday, todayEntries.length, category, generateAndCacheContent]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      if (hasEntriesToday) {
-        const summaryData = await generateDaySummary(todayEntries, entries, category);
-        setSummary(summaryData);
-      } else {
-        const promptData = await generateDashboardPrompts(entries, category);
-        setPrompts(promptData);
-      }
+      // Force regeneration by skipping cache
+      await generateAndCacheContent(false);
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {

@@ -777,6 +777,7 @@ export default function App() {
         <DayDashboard
           entries={entries}
           category={cat}
+          userId={user?.uid}
           onPromptClick={(prompt) => {
             setReplyContext(prompt);
           }}

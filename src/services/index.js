@@ -12,3 +12,6 @@ export * from './entries';
 
 // Prompt Services
 export * from './prompts';
+
+// Dashboard Services
+export * from './dashboard';
