@@ -449,6 +449,18 @@ export const generateInsight = async (current, relevantHistory, recentHistory, a
 
 /**
  * Extract enhanced context (entities, goals, situations) from entry
+ *
+ * Entity Types:
+ * - @person:name - People mentioned (sarah, mom, dr_smith)
+ * - @place:name - Locations (office, gym, home)
+ * - @goal:description - Goals/intentions (exercise_more, speak_up_at_work)
+ * - @situation:description - Multi-day events (job_interview_process)
+ * - @self:statement - Self-descriptions (always_late, never_asks_for_help)
+ * - @activity:name - Activities/hobbies (yoga, hiking, cooking)
+ * - @media:name - Shows/movies/books (succession, oppenheimer)
+ * - @event:name - Specific events (job_interview, dinner_party)
+ * - @food:name - Restaurants/food (sushi_place, pizza_joint)
+ * - @topic:name - Discussion topics (work_stress, relationship)
  */
 export const extractEnhancedContext = async (text, recentEntries = []) => {
   const recentContext = recentEntries.slice(0, 10).map(e => {
@@ -463,55 +475,82 @@ export const extractEnhancedContext = async (text, recentEntries = []) => {
     EXISTING CONTEXT FROM RECENT ENTRIES:
     ${recentContext || 'No recent entries'}
 
-    EXTRACTION RULES:
+    EXTRACTION RULES (use lowercase, underscore-separated names):
 
-    1. PEOPLE (@person:name) - Extract mentioned people with lowercase, underscore-separated names
-       - Only real people with names or clear identifiers (mom, dad, boss, therapist)
+    1. PEOPLE (@person:name)
+       - Real people with names or clear identifiers (mom, dad, boss, therapist)
        - Skip generic references ("someone", "people", "they")
        - Examples: @person:sarah, @person:mom, @person:dr_smith
 
-    2. PLACES (@place:name) - Significant locations
-       - Specific places that might recur: @place:office, @place:gym, @place:home
-       - Skip generic locations ("somewhere", "outside")
+    2. PLACES (@place:name)
+       - Specific locations that might recur
+       - Examples: @place:office, @place:gym, @place:coffee_shop
 
-    3. GOALS/INTENTIONS (@goal:description) - Things the user wants to do or change
+    3. ACTIVITIES (@activity:name) - NEW
+       - Hobbies, exercises, regular activities
+       - Examples: @activity:yoga, @activity:hiking, @activity:cooking, @activity:gaming
+
+    4. MEDIA (@media:name) - NEW
+       - Shows, movies, books, podcasts, games being consumed
+       - Examples: @media:succession, @media:oppenheimer, @media:atomic_habits
+
+    5. EVENTS (@event:name) - NEW
+       - Specific one-time or recurring events
+       - Examples: @event:job_interview, @event:dinner_party, @event:doctors_appointment
+
+    6. FOOD/RESTAURANTS (@food:name) - NEW
+       - Specific restaurants, cuisines, or food experiences
+       - Examples: @food:sushi_place, @food:italian_restaurant, @food:new_thai_spot
+
+    7. TOPICS (@topic:name) - NEW
+       - Main discussion themes/concerns
+       - Examples: @topic:work_stress, @topic:relationship, @topic:health, @topic:finances
+
+    8. GOALS/INTENTIONS (@goal:description)
        - Explicit goals: "I want to...", "I need to...", "I'm going to..."
        - Examples: @goal:exercise_more, @goal:speak_up_at_work
 
-    4. ONGOING SITUATIONS (@situation:description) - Multi-day events or circumstances
-       - Job searches, health issues, relationship conflicts, projects
-       - Examples: @situation:job_interview_process, @situation:apartment_hunting
+    9. ONGOING SITUATIONS (@situation:description)
+       - Multi-day events or circumstances
+       - Examples: @situation:job_search, @situation:apartment_hunting
 
-    5. SELF-STATEMENTS (@self:statement) - How user describes themselves
-       - "I always...", "I never...", "I'm the kind of person who..."
-       - Examples: @self:always_late, @self:never_asks_for_help
-
-    6. TOPIC TAGS (regular tags without @) - General themes
-       - Examples: anxiety, work, family, health, gratitude
+    10. SELF-STATEMENTS (@self:statement)
+        - "I always...", "I never...", "I'm the kind of person who..."
+        - Examples: @self:always_late, @self:overthinks
 
     Return JSON:
     {
-      "structured_tags": ["@person:name", "@place:location", "@goal:description", "@situation:context", "@self:statement"],
+      "structured_tags": ["@type:name", ...],
       "topic_tags": ["general", "topic", "tags"],
       "continues_situation": "@situation:tag_from_recent_entries_if_this_continues_it" or null,
       "goal_update": {
         "tag": "@goal:tag_if_this_updates_a_previous_goal",
         "status": "progress" | "achieved" | "abandoned" | "struggling" | null
-      } or null
+      } or null,
+      "sentiment_by_entity": {
+        "@entity:name": "positive" | "negative" | "neutral" | "mixed"
+      }
     }
 
-    Be conservative - only extract what's clearly present. Empty arrays are fine.
+    Be conservative - only extract what's clearly present. Empty arrays/objects are fine.
   `;
 
   try {
     const raw = await callGemini(prompt, text, AI_CONFIG.classification.primary);
-    if (!raw) return { structured_tags: [], topic_tags: [], continues_situation: null, goal_update: null };
+    if (!raw) return { structured_tags: [], topic_tags: [], continues_situation: null, goal_update: null, sentiment_by_entity: {} };
 
     const jsonStr = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(jsonStr);
+    const parsed = JSON.parse(jsonStr);
+    return {
+      structured_tags: parsed.structured_tags || [],
+      topic_tags: parsed.topic_tags || [],
+      continues_situation: parsed.continues_situation || null,
+      goal_update: parsed.goal_update || null,
+      sentiment_by_entity: parsed.sentiment_by_entity || {}
+    };
   } catch (e) {
     console.error('extractEnhancedContext error:', e);
-    return { structured_tags: [], topic_tags: [], continues_situation: null, goal_update: null };
+    return { structured_tags: [], topic_tags: [], continues_situation: null, goal_update: null, sentiment_by_entity: {} };
   }
 };
 
