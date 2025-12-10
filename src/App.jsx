@@ -33,6 +33,7 @@ import {
 } from './services/analysis';
 import { checkCrisisKeywords, checkWarningIndicators, checkLongitudinalRisk } from './services/safety';
 import { retrofitEntriesInBackground } from './services/entries';
+import { inferCategory } from './services/prompts';
 
 // Hooks
 import { useIOSMeta } from './hooks/useIOSMeta';
@@ -41,11 +42,12 @@ import { useNotifications } from './hooks/useNotifications';
 // Components
 import {
   CrisisSoftBlockModal, DailySummaryModal, WeeklyReport, InsightsPanel,
-  CrisisResourcesScreen, SafetyPlanScreen, DecompressionScreen, TherapistExportScreen, PromptScreen,
+  CrisisResourcesScreen, SafetyPlanScreen, DecompressionScreen, TherapistExportScreen, PromptScreen, JournalScreen,
   Chat, RealtimeConversation,
   EntryCard, MoodHeatmap,
   VoiceRecorder, TextInput, NewEntryButton,
-  MarkdownLite, GetHelpButton, HamburgerMenu
+  MarkdownLite, GetHelpButton, HamburgerMenu,
+  DayDashboard, EntryBar
 } from './components';
 
 // --- Remaining App-specific functions ---
@@ -266,6 +268,9 @@ export default function App() {
 
   // Insights Panel (Phase 4)
   const [showInsights, setShowInsights] = useState(false);
+
+  // Journal Screen (Day Dashboard MVP)
+  const [showJournal, setShowJournal] = useState(false);
 
   // Auth
   useEffect(() => {
@@ -800,6 +805,7 @@ export default function App() {
               onRequestPermission={requestPermission}
               onOpenChat={() => setView('chat')}
               onOpenVoice={() => setView('realtime')}
+              onOpenJournal={() => setShowJournal(true)}
               onLogout={() => signOut(auth)}
               notificationPermission={permission}
             />
@@ -825,86 +831,62 @@ export default function App() {
         </div>
       </motion.div>
 
-      <div className="max-w-md mx-auto p-4">
-        {visible.length > 0 && <MoodHeatmap entries={visible} onDayClick={(date, dayData) => setDailySummaryModal({ date, dayData })} />}
-        <AnimatePresence mode="popLayout">
-          <div className="space-y-4">
-            {visible.map(e => <EntryCard key={e.id} entry={e} onDelete={id => deleteDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', id))} onUpdate={(id, d) => updateDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', id), d)} />)}
-          </div>
-        </AnimatePresence>
+      <div className="max-w-md mx-auto p-4 pb-28">
+        {/* Mood Heatmap */}
+        {entries.length > 0 && (
+          <MoodHeatmap
+            entries={visible}
+            onDayClick={(date, dayData) => setDailySummaryModal({ date, dayData })}
+          />
+        )}
 
-        {visible.length === 0 && (
+        {/* Day Dashboard */}
+        <DayDashboard
+          entries={entries}
+          category={cat}
+          onPromptClick={(prompt) => {
+            setReplyContext(prompt);
+            setMode('recording_text');
+          }}
+          onToggleTask={(task, source, index) => {
+            console.log('Toggle task:', task, source, index);
+          }}
+        />
+
+        {/* Install Prompt for new users */}
+        {entries.length === 0 && (
           <motion.div
-            className="text-center py-12"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            className="mt-8 p-4 bg-primary-50 rounded-2xl text-sm text-primary-800 text-left border border-primary-100"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
           >
-            <motion.div
-              className="h-24 w-24 bg-primary-50 rounded-full flex items-center justify-center mx-auto mb-4 text-primary-300"
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-            >
-              <Mic size={40}/>
-            </motion.div>
-            <h3 className="text-lg font-display font-medium text-warm-900">No {cat} memories yet</h3>
-            <p className="text-warm-500 mt-2 text-sm font-body">Switch categories or record your first entry.</p>
-            <motion.div
-              className="mt-8 p-4 bg-primary-50 rounded-2xl text-sm text-primary-800 text-left border border-primary-100"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-            >
-              <p className="font-bold mb-1 flex items-center gap-2"><Share size={14}/> Install on iPhone</p>
-              <p className="font-body">Tap <strong>Share</strong> → <strong>Add to Home Screen</strong>.</p>
-            </motion.div>
+            <p className="font-bold mb-1 flex items-center gap-2"><Share size={14}/> Install on iPhone</p>
+            <p className="font-body">Tap <strong>Share</strong> → <strong>Add to Home Screen</strong>.</p>
           </motion.div>
         )}
       </div>
 
+      {/* Entry Bar - Always visible at bottom */}
+      <EntryBar
+        onVoiceSave={handleAudioWrapper}
+        onTextSave={saveEntry}
+        loading={processing}
+        disabled={false}
+      />
+
+      {/* Journal Screen (Timeline) */}
       <AnimatePresence>
-        {replyContext && !showPrompts && (
-          <motion.div
-            className="fixed bottom-24 left-4 right-4 bg-primary-900 text-white p-3 rounded-2xl z-30 flex justify-between items-center shadow-soft-lg"
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-          >
-            <div className="text-xs">
-              <span className="opacity-70 block text-[10px] uppercase font-bold">Replying to:</span>
-              "{replyContext}"
-            </div>
-            <motion.button
-              onClick={() => setReplyContext(null)}
-              className="p-1 hover:bg-white/20 rounded-lg"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-            >
-              <X size={16}/>
-            </motion.button>
-          </motion.div>
+        {showJournal && (
+          <JournalScreen
+            entries={entries}
+            category={cat}
+            onClose={() => setShowJournal(false)}
+            onDelete={id => deleteDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', id))}
+            onUpdate={(id, d) => updateDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries', id), d)}
+          />
         )}
       </AnimatePresence>
-
-      {showPrompts ? (
-        <PromptScreen
-          prompts={availablePrompts}
-          mode={promptMode}
-          onModeChange={setPromptMode}
-          onSave={handlePromptSave}
-          onClose={() => {
-            setShowPrompts(false);
-            setPromptMode(null);
-          }}
-          loading={processing}
-          category={cat}
-        />
-      ) : mode === 'recording_voice' ? (
-        <VoiceRecorder onSave={handleAudioWrapper} onSwitch={() => setMode('recording_text')} loading={processing} />
-      ) : mode === 'recording_text' ? (
-        <TextInput onSave={saveEntry} onCancel={() => {setMode('idle'); setReplyContext(null);}} loading={processing} />
-      ) : (
-        <NewEntryButton onClick={() => setShowPrompts(true)} />
-      )}
 
       {view === 'chat' && <Chat entries={visible} onClose={() => setView('feed')} category={cat} />}
       {view === 'realtime' && <RealtimeConversation entries={visible} onClose={() => setView('feed')} category={cat} />}

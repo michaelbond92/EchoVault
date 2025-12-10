@@ -9,3 +9,6 @@ export * from './safety';
 
 // Entry Services
 export * from './entries';
+
+// Prompt Services
+export * from './prompts';
