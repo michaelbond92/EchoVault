@@ -4,9 +4,16 @@ on:
   push:
     branches:
       - main
+      - 'claude/**'
     paths:
       - 'functions/**'
+      - '.github/workflows/deploy-functions.yml'
   workflow_dispatch:  # Allows manual trigger from GitHub UI
+    inputs:
+      environment:
+        description: 'Deploy environment'
+        required: false
+        default: 'production'
 
 jobs:
   deploy:
