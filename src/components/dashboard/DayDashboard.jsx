@@ -109,11 +109,66 @@ const ChallengesSection = ({ challenges }) => {
 };
 
 const ActionItemsSection = ({ actionItems, onToggleTask }) => {
+  const [completingTasks, setCompletingTasks] = useState(new Set());
+
   const hasItems = actionItems?.today?.length > 0 ||
     actionItems?.carried_forward?.length > 0 ||
     actionItems?.suggested?.length > 0;
 
   if (!hasItems) return null;
+
+  const handleComplete = (item, source, index) => {
+    const taskKey = `${source}-${index}`;
+    setCompletingTasks(prev => new Set(prev).add(taskKey));
+
+    // After animation completes, trigger the actual completion
+    setTimeout(() => {
+      onToggleTask?.(item, source, index);
+      setCompletingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(taskKey);
+        return next;
+      });
+    }, 1000);
+  };
+
+  const renderTaskItem = (item, source, index, isCarriedForward = false) => {
+    const taskKey = `${source}-${index}`;
+    const isCompleting = completingTasks.has(taskKey);
+    // Handle both string items and object items with recurrence
+    const taskText = typeof item === 'string' ? item : item.text;
+    const recurrence = typeof item === 'object' ? item.recurrence : null;
+
+    return (
+      <li
+        key={taskKey}
+        className={`flex items-start gap-2 text-sm text-blue-800 relative overflow-hidden ${isCompleting ? 'action-item-completing' : ''}`}
+      >
+        <button
+          onClick={() => !isCompleting && handleComplete(item, source, index)}
+          className={`action-checkbox mt-0.5 flex-shrink-0 ${isCompleting ? 'checked' : ''}`}
+          disabled={isCompleting}
+        >
+          {isCompleting && <CheckCircle2 size={12} className="text-white" />}
+        </button>
+        <div className="flex-1 relative">
+          <span className={`font-body ${isCompleting ? 'text-blue-400' : ''}`}>
+            {taskText}
+            {isCarriedForward && (
+              <span className="text-xs text-blue-500 ml-1">(from yesterday)</span>
+            )}
+          </span>
+          {recurrence && (
+            <span className="badge-recurring ml-2">
+              <RefreshCw size={10} className="inline mr-1" />
+              {recurrence.description || recurrence.pattern}
+            </span>
+          )}
+          {isCompleting && <div className="strikethrough-line" />}
+        </div>
+      </li>
+    );
+  };
 
   return (
     <motion.div
@@ -124,31 +179,12 @@ const ActionItemsSection = ({ actionItems, onToggleTask }) => {
     >
       <SectionHeader icon={Target} title="Action Items" iconColor="text-blue-500" />
       <ul className="space-y-2">
-        {actionItems.carried_forward?.map((item, i) => (
-          <li key={`cf-${i}`} className="flex items-start gap-2 text-sm text-blue-800">
-            <button
-              onClick={() => onToggleTask?.(item, 'carried_forward', i)}
-              className="mt-0.5 flex-shrink-0 hover:scale-110 transition-transform"
-            >
-              <Circle size={14} className="text-blue-400" />
-            </button>
-            <span className="font-body">
-              {item}
-              <span className="text-xs text-blue-500 ml-1">(from yesterday)</span>
-            </span>
-          </li>
-        ))}
-        {actionItems.today?.map((item, i) => (
-          <li key={`today-${i}`} className="flex items-start gap-2 text-sm text-blue-800">
-            <button
-              onClick={() => onToggleTask?.(item, 'today', i)}
-              className="mt-0.5 flex-shrink-0 hover:scale-110 transition-transform"
-            >
-              <Circle size={14} className="text-blue-400" />
-            </button>
-            <span className="font-body">{item}</span>
-          </li>
-        ))}
+        {actionItems.carried_forward?.map((item, i) =>
+          renderTaskItem(item, 'carried_forward', i, true)
+        )}
+        {actionItems.today?.map((item, i) =>
+          renderTaskItem(item, 'today', i, false)
+        )}
         {actionItems.suggested?.map((item, i) => (
           <li key={`sug-${i}`} className="flex items-start gap-2 text-sm text-blue-600 opacity-75">
             <Lightbulb size={14} className="mt-0.5 text-blue-400 flex-shrink-0" />

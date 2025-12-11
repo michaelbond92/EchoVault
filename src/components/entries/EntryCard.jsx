@@ -276,21 +276,70 @@ const EntryCard = ({ entry, onDelete, onUpdate }) => {
             <Clipboard size={12} /> Tasks
           </div>
           <div className="space-y-1">
-            {entry.extracted_tasks.map((task, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm font-body">
-                <input
-                  type="checkbox"
-                  checked={task.completed}
-                  onChange={() => {
-                    const updatedTasks = [...entry.extracted_tasks];
-                    updatedTasks[i] = { ...task, completed: !task.completed };
-                    onUpdate(entry.id, { extracted_tasks: updatedTasks });
-                  }}
-                  className="rounded border-warm-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span className={task.completed ? 'line-through text-warm-400' : 'text-warm-700'}>{task.text}</span>
-              </div>
-            ))}
+            {entry.extracted_tasks.map((task, i) => {
+              // For recurring tasks, check if waiting for next due date
+              const isWaitingForNextDue = task.recurrence && task.nextDueDate && new Date(task.nextDueDate) > new Date();
+              const displayAsCompleted = task.completed || isWaitingForNextDue;
+
+              // Helper to calculate next due date
+              const calculateNextDueDate = (recurrence) => {
+                const next = new Date();
+                const { interval, unit } = recurrence;
+                switch (unit) {
+                  case 'days':
+                    next.setDate(next.getDate() + interval);
+                    break;
+                  case 'weeks':
+                    next.setDate(next.getDate() + (interval * 7));
+                    break;
+                  case 'months':
+                    next.setMonth(next.getMonth() + interval);
+                    break;
+                  default:
+                    next.setDate(next.getDate() + interval);
+                }
+                return next.toISOString();
+              };
+
+              return (
+                <div key={i} className="flex items-center gap-2 text-sm font-body">
+                  <input
+                    type="checkbox"
+                    checked={displayAsCompleted}
+                    onChange={() => {
+                      const updatedTasks = [...entry.extracted_tasks];
+                      if (task.recurrence) {
+                        // For recurring tasks, set next due date
+                        updatedTasks[i] = {
+                          ...task,
+                          completed: false,
+                          lastCompletedAt: new Date().toISOString(),
+                          nextDueDate: calculateNextDueDate(task.recurrence)
+                        };
+                      } else {
+                        // For non-recurring, toggle completed
+                        updatedTasks[i] = {
+                          ...task,
+                          completed: !task.completed,
+                          completedAt: !task.completed ? new Date().toISOString() : null
+                        };
+                      }
+                      onUpdate(entry.id, { extracted_tasks: updatedTasks });
+                    }}
+                    className="rounded border-warm-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className={displayAsCompleted ? 'line-through text-warm-400' : 'text-warm-700'}>
+                    {task.text}
+                  </span>
+                  {task.recurrence && (
+                    <span className="badge-recurring">
+                      <RefreshCw size={10} className="inline mr-1" />
+                      {task.recurrence.description || task.recurrence.pattern}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

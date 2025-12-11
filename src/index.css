@@ -322,3 +322,70 @@
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/* ============================================
+   Action Item Completion Animations
+   ============================================ */
+
+@keyframes strikethrough {
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+@keyframes fadeOutSlide {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 60px;
+  }
+  70% {
+    opacity: 0;
+    transform: translateX(20px);
+    max-height: 60px;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(20px);
+    max-height: 0;
+    padding: 0;
+    margin: 0;
+  }
+}
+
+.action-item-completing {
+  animation: fadeOutSlide 0.6s ease-out forwards;
+  animation-delay: 0.4s;
+}
+
+.action-item-completing .strikethrough-line {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 2px;
+  background-color: theme('colors.primary.500');
+  animation: strikethrough 0.3s ease-out forwards;
+}
+
+/* Custom checkbox for action items */
+.action-checkbox {
+  @apply w-5 h-5 rounded-full border-2 border-warm-300
+         flex items-center justify-center cursor-pointer
+         transition-all duration-200;
+}
+
+.action-checkbox:hover {
+  @apply border-primary-400 bg-primary-50;
+}
+
+.action-checkbox.checked {
+  @apply border-primary-500 bg-primary-500;
+}
+
+/* Recurring task badge */
+.badge-recurring {
+  @apply badge bg-blue-100 text-blue-600;
+}
