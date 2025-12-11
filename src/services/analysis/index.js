@@ -17,7 +17,16 @@ export const classifyEntry = async (text) => {
     {
       "entry_type": "task" | "mixed" | "reflection" | "vent",
       "confidence": 0.0-1.0,
-      "extracted_tasks": [{ "text": "Buy milk", "completed": false }]
+      "extracted_tasks": [{
+        "text": "Buy milk",
+        "completed": false,
+        "recurrence": null | {
+          "pattern": "daily" | "weekly" | "biweekly" | "monthly" | "custom",
+          "interval": 1,
+          "unit": "days" | "weeks" | "months",
+          "description": "every two weeks"
+        }
+      }]
     }
 
     TASK EXTRACTION RULES (only for task/mixed types):
@@ -26,6 +35,14 @@ export const classifyEntry = async (text) => {
     - SKIP vague intentions ("I should exercise more" → NOT a task)
     - SKIP emotional statements ("I need to feel better" → NOT a task)
     - If no clear tasks, return empty array
+
+    RECURRENCE DETECTION:
+    - Look for patterns like "every day", "weekly", "every two weeks", "biweekly", "monthly", "every X days/weeks/months"
+    - Examples:
+      - "Water plants every two weeks" → pattern: "biweekly", interval: 2, unit: "weeks"
+      - "Take medication daily" → pattern: "daily", interval: 1, unit: "days"
+      - "Weekly team meeting" → pattern: "weekly", interval: 1, unit: "weeks"
+    - If no recurrence pattern is found, set recurrence to null
   `;
 
   try {
@@ -37,10 +54,21 @@ export const classifyEntry = async (text) => {
     const jsonStr = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(jsonStr);
 
+    // Normalize tasks to ensure they have all required fields
+    const normalizedTasks = Array.isArray(parsed.extracted_tasks)
+      ? parsed.extracted_tasks.map(task => ({
+          text: task.text || '',
+          completed: task.completed || false,
+          recurrence: task.recurrence || null,
+          completedAt: null,
+          nextDueDate: task.recurrence ? new Date().toISOString() : null
+        }))
+      : [];
+
     return {
       entry_type: parsed.entry_type || 'reflection',
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
-      extracted_tasks: Array.isArray(parsed.extracted_tasks) ? parsed.extracted_tasks : []
+      extracted_tasks: normalizedTasks
     };
   } catch (e) {
     console.error('classifyEntry error:', e);
