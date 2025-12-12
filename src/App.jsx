@@ -2566,7 +2566,8 @@ export default function App() {
                 updateData.goal_update = enhancedContext.goal_update;
               }
               if (classification.extracted_tasks?.length > 0) {
-                updateData.extracted_tasks = classification.extracted_tasks.map(t => ({ text: t, completed: false }));
+                // extracted_tasks already comes as [{text: "...", completed: false}] from Cloud Function
+                updateData.extracted_tasks = classification.extracted_tasks;
               }
               if (analysis?.cbt_breakdown) updateData.analysis.cbt_breakdown = analysis.cbt_breakdown;
               if (analysis?.vent_support) updateData.analysis.vent_support = analysis.vent_support;
@@ -2894,7 +2895,8 @@ export default function App() {
           }
           
           if (classification.extracted_tasks && classification.extracted_tasks.length > 0) {
-            updateData.extracted_tasks = classification.extracted_tasks.map(t => ({ text: t, completed: false }));
+            // extracted_tasks already comes as [{text: "...", completed: false}] from Cloud Function
+            updateData.extracted_tasks = classification.extracted_tasks;
           }
 
           updateData.analysis = {
@@ -2990,6 +2992,18 @@ export default function App() {
     }
 
     // Handle different error types with specific messages
+    if (transcript === 'FILE_TOO_LARGE') {
+      alert("Recording is too long (max ~5 minutes). Please try a shorter recording.");
+      setProcessing(false);
+      return;
+    }
+
+    if (transcript === 'API_TIMEOUT') {
+      alert("Recording took too long to process. Please try a shorter recording.");
+      setProcessing(false);
+      return;
+    }
+
     if (transcript === 'API_RATE_LIMIT') {
       alert("Too many requests - please wait a moment and try again");
       setProcessing(false);

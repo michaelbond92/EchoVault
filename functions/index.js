@@ -572,12 +572,15 @@ export const generateEmbedding = onCall(
 
 /**
  * Cloud Function: Transcribe audio using Whisper
+ * Configured with extended timeout and memory for large audio files
  */
 export const transcribeAudio = onCall(
   {
     secrets: [openaiApiKey],
     cors: true,
-    maxInstances: 5
+    maxInstances: 5,
+    timeoutSeconds: 300, // 5 minutes for large files
+    memory: '1GiB' // Increased memory for large audio processing
   },
   async (request) => {
     if (!request.auth) {
@@ -599,6 +602,15 @@ export const transcribeAudio = onCall(
     try {
       // Convert base64 to buffer
       const buffer = Buffer.from(base64, 'base64');
+
+      // Validate file size (Whisper API limit is 25MB)
+      const fileSizeMB = buffer.length / (1024 * 1024);
+      if (fileSizeMB > 25) {
+        console.error(`Audio file too large: ${fileSizeMB.toFixed(2)}MB (max 25MB)`);
+        return { error: 'FILE_TOO_LARGE' };
+      }
+
+      console.log(`Processing audio: ${fileSizeMB.toFixed(2)}MB, type: ${mimeType}`);
 
       // Determine file extension
       const fileExt = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : 'wav';
