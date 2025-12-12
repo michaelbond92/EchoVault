@@ -16,7 +16,7 @@ import {
   collection, addDoc, query, orderBy, onSnapshot,
   Timestamp, deleteDoc, doc, updateDoc, limit, getDocs, setDoc
 } from './config/firebase';
-import { AI_CONFIG, GEMINI_API_KEY, OPENAI_API_KEY } from './config/ai';
+import { AI_CONFIG } from './config/ai';
 import {
   APP_COLLECTION_ID, CURRENT_CONTEXT_VERSION,
   CRISIS_KEYWORDS, WARNING_INDICATORS, DEFAULT_SAFETY_PLAN,
@@ -40,6 +40,7 @@ import { retrofitEntriesInBackground } from './services/entries';
 // Hooks
 import { useIOSMeta } from './hooks/useIOSMeta';
 import { useNotifications } from './hooks/useNotifications';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
 
 // --- Remaining App-specific functions ---
 
@@ -2456,6 +2457,7 @@ const NewEntryButton = ({ onClick }) => {
 export default function App() {
   useIOSMeta();
   const { permission, requestPermission } = useNotifications();
+  const { isOnline, wasOffline, clearWasOffline } = useNetworkStatus();
   const [user, setUser] = useState(null);
   const [entries, setEntries] = useState([]);
   const [view, setView] = useState('feed');
@@ -2466,6 +2468,7 @@ export default function App() {
   const [showDecompression, setShowDecompression] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
   const [promptMode, setPromptMode] = useState(null);
+  const [offlineQueue, setOfflineQueue] = useState([]);
   
   // Safety features (Phase 0)
   const [safetyPlan, setSafetyPlan] = useState(DEFAULT_SAFETY_PLAN);
@@ -2482,6 +2485,118 @@ export default function App() {
   
   // Insights Panel (Phase 4)
   const [showInsights, setShowInsights] = useState(false);
+
+  // Process offline queue when back online
+  useEffect(() => {
+    const processOfflineQueue = async () => {
+      if (!isOnline || !wasOffline || offlineQueue.length === 0 || !user) return;
+
+      console.log(`Processing ${offlineQueue.length} offline entries...`);
+      clearWasOffline();
+
+      for (const offlineEntry of offlineQueue) {
+        try {
+          // Generate embedding for the entry
+          const embedding = await generateEmbedding(offlineEntry.text);
+
+          // Prepare entry data for Firestore
+          const entryData = {
+            text: offlineEntry.text,
+            category: offlineEntry.category,
+            analysisStatus: 'pending',
+            embedding,
+            createdAt: Timestamp.fromDate(offlineEntry.createdAt),
+            userId: user.uid
+          };
+
+          if (offlineEntry.safety_flagged) {
+            entryData.safety_flagged = true;
+            if (offlineEntry.safety_user_response) {
+              entryData.safety_user_response = offlineEntry.safety_user_response;
+            }
+          }
+
+          if (offlineEntry.has_warning_indicators) {
+            entryData.has_warning_indicators = true;
+          }
+
+          // Save to Firestore
+          const ref = await addDoc(
+            collection(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries'),
+            entryData
+          );
+
+          console.log(`Saved offline entry: ${offlineEntry.offlineId}`);
+
+          // Run analysis in background (same as online flow)
+          (async () => {
+            try {
+              const recent = entries.slice(0, 5);
+              const related = findRelevantMemories(embedding, entries, offlineEntry.category);
+
+              const classification = await classifyEntry(offlineEntry.text);
+              const [analysis, insight, enhancedContext] = await Promise.all([
+                analyzeEntry(offlineEntry.text, classification.entry_type),
+                classification.entry_type !== 'task' ? generateInsight(offlineEntry.text, related, recent, entries) : Promise.resolve(null),
+                classification.entry_type !== 'task' ? extractEnhancedContext(offlineEntry.text, recent) : Promise.resolve(null)
+              ]);
+
+              const topicTags = analysis?.tags || [];
+              const structuredTags = enhancedContext?.structured_tags || [];
+              const contextTopicTags = enhancedContext?.topic_tags || [];
+              const allTags = [...new Set([...topicTags, ...structuredTags, ...contextTopicTags])];
+
+              const updateData = {
+                title: analysis?.title || "New Memory",
+                tags: allTags,
+                analysisStatus: 'complete',
+                entry_type: classification.entry_type,
+                classification_confidence: classification.confidence,
+                context_version: CURRENT_CONTEXT_VERSION,
+                analysis: {
+                  mood_score: analysis?.mood_score,
+                  framework: analysis?.framework || 'general'
+                }
+              };
+
+              if (enhancedContext?.continues_situation) {
+                updateData.continues_situation = enhancedContext.continues_situation;
+              }
+              if (enhancedContext?.goal_update?.tag) {
+                updateData.goal_update = enhancedContext.goal_update;
+              }
+              if (classification.extracted_tasks?.length > 0) {
+                updateData.extracted_tasks = classification.extracted_tasks.map(t => ({ text: t, completed: false }));
+              }
+              if (analysis?.cbt_breakdown) updateData.analysis.cbt_breakdown = analysis.cbt_breakdown;
+              if (analysis?.vent_support) updateData.analysis.vent_support = analysis.vent_support;
+              if (analysis?.celebration) updateData.analysis.celebration = analysis.celebration;
+              if (analysis?.task_acknowledgment) updateData.analysis.task_acknowledgment = analysis.task_acknowledgment;
+              if (insight?.found) updateData.contextualInsight = insight;
+
+              await updateDoc(ref, removeUndefined(updateData));
+            } catch (error) {
+              console.error('Analysis failed for offline entry:', error);
+              await updateDoc(ref, {
+                title: offlineEntry.text.substring(0, 50) + (offlineEntry.text.length > 50 ? '...' : ''),
+                tags: [],
+                analysisStatus: 'complete',
+                entry_type: 'reflection',
+                analysis: { mood_score: 0.5, framework: 'general' }
+              });
+            }
+          })();
+        } catch (error) {
+          console.error('Failed to save offline entry:', error);
+        }
+      }
+
+      // Clear the offline queue
+      setOfflineQueue([]);
+    };
+
+    processOfflineQueue();
+  }, [isOnline, wasOffline, offlineQueue, user, entries, clearWasOffline]);
 
   // Auth
   useEffect(() => {
@@ -2680,33 +2795,53 @@ export default function App() {
       finalTex = `[Replying to: "${replyContext}"]\n\n${textInput}`;
     }
 
+    const hasWarning = checkWarningIndicators(finalTex);
+
+    // Build base entry data
+    const entryData = {
+      text: finalTex,
+      category: cat,
+      analysisStatus: 'pending',
+      createdAt: Timestamp.now(),
+      userId: user.uid
+    };
+
+    if (safetyFlagged) {
+      entryData.safety_flagged = true;
+      if (safetyUserResponse) {
+        entryData.safety_user_response = safetyUserResponse;
+      }
+    }
+
+    if (hasWarning) {
+      entryData.has_warning_indicators = true;
+    }
+
+    // If offline, queue the entry for later processing
+    if (!isOnline) {
+      console.log('Offline: queuing entry for later processing');
+      const offlineEntry = {
+        ...entryData,
+        offlineId: Date.now().toString(),
+        createdAt: new Date() // Use regular Date for local storage
+      };
+      setOfflineQueue(prev => [...prev, offlineEntry]);
+      setProcessing(false);
+      setMode('idle');
+      setReplyContext(null);
+      setShowPrompts(false);
+      setPromptMode(null);
+      return;
+    }
+
+    // Online: generate embedding and save
     const embedding = await generateEmbedding(finalTex);
     const related = findRelevantMemories(embedding, entries, cat);
     const recent = entries.slice(0, 5);
-    
-    const hasWarning = checkWarningIndicators(finalTex);
 
     try {
-      const entryData = {
-        text: finalTex, 
-        category: cat, 
-        analysisStatus: 'pending', 
-        embedding,
-        createdAt: Timestamp.now(), 
-        userId: user.uid
-      };
-      
-      if (safetyFlagged) {
-        entryData.safety_flagged = true;
-        if (safetyUserResponse) {
-          entryData.safety_user_response = safetyUserResponse;
-        }
-      }
-      
-      if (hasWarning) {
-        entryData.has_warning_indicators = true;
-      }
-      
+      entryData.embedding = embedding;
+
       const ref = await addDoc(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', user.uid, 'entries'), entryData);
 
       setProcessing(false);
@@ -2923,6 +3058,14 @@ export default function App() {
             <Loader2 className="animate-spin" size={14} />
             <span>Enhancing entries... {retrofitProgress.processed}/{retrofitProgress.total}</span>
           </div>
+        </div>
+      )}
+
+      {/* Offline Indicator */}
+      {!isOnline && (
+        <div className="fixed top-[env(safe-area-inset-top)] left-0 right-0 z-50 bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium">
+          You're offline. Entries will be saved locally and synced when you're back online.
+          {offlineQueue.length > 0 && ` (${offlineQueue.length} pending)`}
         </div>
       )}
 
