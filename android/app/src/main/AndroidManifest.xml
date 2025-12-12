@@ -36,6 +36,28 @@
     </application>
 
     <!-- Permissions -->
-
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Microphone - Required for voice journaling -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Network state - Check connectivity before API calls -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Vibration - For haptic feedback -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Biometric - For secure authentication (future) -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- Wake lock - Keep screen on during recording -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Foreground service - For background audio recording -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Hardware features (optional) -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
 </manifest>

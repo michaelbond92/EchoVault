@@ -47,5 +47,38 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+
+	<!-- Microphone Permission - Required for voice journaling -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>EchoVault needs microphone access to record voice journal entries. Your recordings are transcribed and stored securely.</string>
+
+	<!-- Speech Recognition (if using on-device) -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>EchoVault uses speech recognition to transcribe your voice journal entries into text.</string>
+
+	<!-- Face ID (for future biometric auth) -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to securely access your private journal entries.</string>
+
+	<!-- App Transport Security - Allow HTTPS connections -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
+
+	<!-- Background Modes (if needed for audio) -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+
+	<!-- Privacy - User data descriptions for App Store -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>EchoVault does not track you. We only collect data necessary to provide journaling features.</string>
+
+	<!-- ITSAppUsesNonExemptEncryption - Required for App Store -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
