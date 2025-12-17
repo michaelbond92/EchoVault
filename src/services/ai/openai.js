@@ -1,5 +1,20 @@
 import { OPENAI_API_KEY } from '../../config';
 
+// Timeout duration for API calls (30 seconds)
+const API_TIMEOUT_MS = 30000;
+
+/**
+ * Wraps a promise with a timeout
+ */
+const withTimeout = (promise, timeoutMs) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('API call timeout')), timeoutMs)
+    )
+  ]);
+};
+
 /**
  * Call the OpenAI GPT API
  */
@@ -10,22 +25,25 @@ export const callOpenAI = async (systemPrompt, userPrompt) => {
       return null;
     }
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
-      })
-    });
+    const res = await withTimeout(
+      fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 500
+        })
+      }),
+      API_TIMEOUT_MS
+    );
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
