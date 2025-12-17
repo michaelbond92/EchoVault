@@ -24,7 +24,11 @@ export const sanitizeEntry = (id, data) => {
     text: safeString(data.text),
     category: safeString(data.category) || 'personal',
     tags: Array.isArray(data.tags)
-      ? data.tags.map(t => typeof t === 'string' ? t : (t?.text || safeString(t)))
+      ? data.tags.map(t => {
+          if (typeof t === 'string') return t;
+          if (t?.text && typeof t.text === 'string') return t.text;
+          return safeString(t);
+        })
       : [],
     title: safeString(data.title) || safeString(data.analysis?.summary) || "Untitled Memory",
     analysis: data.analysis || { mood_score: 0.5 },
