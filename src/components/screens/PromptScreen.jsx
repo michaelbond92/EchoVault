@@ -1,19 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MessageCircle, Sparkles, RefreshCw, Mic, Keyboard, Square, Loader2, Send } from 'lucide-react';
+import { X, MessageCircle, Sparkles, RefreshCw, Mic, Keyboard, Square, Loader2, Send, Brain } from 'lucide-react';
 import { getPromptsForSession } from '../../utils/prompts';
 
-const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, category, onRefreshPrompts }) => {
+const PromptScreen = ({ prompts, allSmartPrompts = [], mode, onModeChange, onSave, onClose, loading, category, onRefreshPrompts }) => {
   const [textValue, setTextValue] = useState('');
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordSeconds, setRecordSeconds] = useState(0);
-  const [displayPrompts, setDisplayPrompts] = useState(prompts);
+  const [displayPrompts, setDisplayPrompts] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [promptSource, setPromptSource] = useState('smart'); // 'smart' or 'template'
   const timerRef = useRef(null);
+  const shownSmartPromptsRef = useRef(new Set());
 
+  // Initialize with smart prompts on mount, prioritizing bespoke reflections
   useEffect(() => {
-    setDisplayPrompts(prompts);
+    if (prompts.length > 0) {
+      // Start with up to 3 smart prompts
+      const initialPrompts = prompts.slice(0, 3);
+      initialPrompts.forEach(p => shownSmartPromptsRef.current.add(p));
+      setDisplayPrompts(initialPrompts);
+      setPromptSource('smart');
+    } else {
+      // No smart prompts available, fall back to templates
+      const result = getPromptsForSession(category, []);
+      setDisplayPrompts(result.prompts);
+      setPromptSource('template');
+    }
+  }, []); // Only run on mount
+
+  // Update if prompts change significantly (e.g., category switch)
+  useEffect(() => {
+    if (prompts.length > 0 && displayPrompts.length === 0) {
+      const initialPrompts = prompts.slice(0, 3);
+      initialPrompts.forEach(p => shownSmartPromptsRef.current.add(p));
+      setDisplayPrompts(initialPrompts);
+      setPromptSource('smart');
+    }
   }, [prompts]);
 
   useEffect(() => {
@@ -24,9 +48,26 @@ const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, c
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    const result = getPromptsForSession(category, []);
-    setDisplayPrompts(result.prompts);
-    if (onRefreshPrompts) onRefreshPrompts(result.prompts);
+
+    // Get smart prompts that haven't been shown yet
+    const allSmart = allSmartPrompts.length > 0 ? allSmartPrompts : prompts;
+    const unshownSmartPrompts = allSmart.filter(p => !shownSmartPromptsRef.current.has(p));
+
+    if (unshownSmartPrompts.length > 0) {
+      // Show next batch of smart prompts
+      const nextBatch = unshownSmartPrompts.slice(0, 3);
+      nextBatch.forEach(p => shownSmartPromptsRef.current.add(p));
+      setDisplayPrompts(nextBatch);
+      setPromptSource('smart');
+      if (onRefreshPrompts) onRefreshPrompts(nextBatch);
+    } else {
+      // All smart prompts exhausted, fall back to templates
+      const result = getPromptsForSession(category, []);
+      setDisplayPrompts(result.prompts);
+      setPromptSource('template');
+      if (onRefreshPrompts) onRefreshPrompts(result.prompts);
+    }
+
     setTimeout(() => setIsRefreshing(false), 300);
   };
 
@@ -97,18 +138,33 @@ const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, c
           >
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-xs font-display font-bold text-warm-500 uppercase tracking-wide flex items-center gap-2">
-                <Sparkles size={12} className="text-accent"/> Reflect on these
+                {promptSource === 'smart' ? (
+                  <>
+                    <Brain size={12} className="text-purple-500"/> Your Reflections
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={12} className="text-accent"/> Prompts to Consider
+                  </>
+                )}
               </h3>
               <button
                 onClick={handleRefresh}
                 className={`text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1 transition-transform ${isRefreshing ? 'animate-spin' : ''}`}
-                title="Get new prompts"
+                title={promptSource === 'smart' ? "See more personal reflections" : "Get new prompts"}
               >
                 <RefreshCw size={14} />
-                Refresh
+                {promptSource === 'smart' ? 'More' : 'Refresh'}
               </button>
             </div>
-            <div className={`bg-white rounded-2xl p-4 border border-warm-200 shadow-soft transition-opacity ${isRefreshing ? 'opacity-50' : ''}`}>
+            <div className={`rounded-2xl p-4 border shadow-soft transition-opacity ${isRefreshing ? 'opacity-50' : ''} ${
+              promptSource === 'smart'
+                ? 'bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-100'
+                : 'bg-white border-warm-200'
+            }`}>
+              {promptSource === 'smart' && (
+                <p className="text-[10px] text-purple-600 font-medium mb-2 uppercase tracking-wider">Based on your recent entries</p>
+              )}
               <div className="space-y-2">
                 {displayPrompts.map((prompt, i) => (
                   <motion.div
@@ -118,7 +174,7 @@ const PromptScreen = ({ prompts, mode, onModeChange, onSave, onClose, loading, c
                     transition={{ delay: i * 0.1 }}
                     className="flex items-start gap-2"
                   >
-                    <span className="text-primary-500 text-xs mt-0.5">•</span>
+                    <span className={`text-xs mt-0.5 ${promptSource === 'smart' ? 'text-purple-500' : 'text-primary-500'}`}>•</span>
                     <p className="text-sm text-warm-700 italic font-body">"{prompt}"</p>
                   </motion.div>
                 ))}
