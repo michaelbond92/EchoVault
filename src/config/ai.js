@@ -1,16 +1,16 @@
 // AI Model Configuration (for reference - actual API calls are now handled by Cloud Functions)
 export const AI_CONFIG = {
   classification: {
-    primary: 'gemini-2.0-flash',
+    primary: 'gemini-3.0-flash',
     fallback: 'gpt-4o-mini'
   },
   analysis: {
-    primary: 'gemini-2.0-flash',
+    primary: 'gemini-3.0-flash',
     fallback: 'gpt-4o'
   },
   chat: {
     primary: 'gpt-4o-mini',
-    fallback: 'gemini-2.0-flash'
+    fallback: 'gemini-3.0-flash'
   },
   embedding: {
     primary: 'text-embedding-004',
