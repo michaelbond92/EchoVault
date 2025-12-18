@@ -220,3 +220,78 @@ export const completeActionItem = async (userId, category, source, index) => {
     return null;
   }
 };
+
+/**
+ * Complete a task and add it as a Win
+ *
+ * Per spec: "A Win is a memory; a Task is a chore. Treat them as separate data points."
+ *
+ * Flow:
+ * 1. Remove task from action_items[source]
+ * 2. Add task text to wins.items array
+ * 3. Persist updated summary to cache
+ *
+ * @param {string} userId - User ID
+ * @param {string} category - 'personal' or 'work'
+ * @param {object|string} task - The task being completed
+ * @param {string} source - 'today', 'carried_forward', or 'suggested'
+ * @param {number} index - Index of the item in the source array
+ * @returns {object|null} Updated summary or null on failure
+ */
+export const completeTaskAsWin = async (userId, category, task, source, index) => {
+  try {
+    const cacheRef = getDashboardCacheRef(userId, category);
+    const cacheSnap = await getDoc(cacheRef);
+
+    if (!cacheSnap.exists()) {
+      console.log('No dashboard cache to update');
+      return null;
+    }
+
+    const cache = cacheSnap.data();
+    const summary = cache.summary;
+
+    if (!summary) {
+      console.log('No summary in cache');
+      return null;
+    }
+
+    // Get task text
+    const taskText = typeof task === 'string' ? task : task.text || String(task);
+
+    // Remove from action items
+    const updatedActionItems = { ...summary.action_items };
+    if (updatedActionItems[source]) {
+      const items = [...updatedActionItems[source]];
+      items.splice(index, 1);
+      updatedActionItems[source] = items;
+    }
+
+    // Add to wins
+    const currentWins = summary.wins || { items: [], tone: 'acknowledging' };
+    const updatedWins = {
+      ...currentWins,
+      items: [...(currentWins.items || []), taskText]
+    };
+
+    // Build updated summary
+    const updatedSummary = {
+      ...summary,
+      action_items: updatedActionItems,
+      wins: updatedWins
+    };
+
+    // Save back to cache
+    await setDoc(cacheRef, {
+      ...cache,
+      summary: updatedSummary,
+      lastUpdated: Timestamp.now()
+    });
+
+    console.log('Task completed and added to wins:', taskText);
+    return updatedSummary;
+  } catch (e) {
+    console.error('Failed to complete task as win:', e);
+    return null;
+  }
+};
