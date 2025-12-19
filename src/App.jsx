@@ -52,6 +52,9 @@ import {
   DayDashboard, EntryBar
 } from './components';
 
+// Dashboard Enhancement Components
+import { QuickStatsBar, GoalsProgress, WeeklyDigest, SituationTimeline } from './components/dashboard/shared';
+
 // --- PDF LOADER (lazy-loads jsPDF from CDN) ---
 let jsPDFPromise = null;
 const loadJsPDF = () => {
@@ -936,11 +939,48 @@ export default function App() {
       </motion.div>
 
       <div className="max-w-md mx-auto p-4 pb-28">
+        {/* Weekly Digest - Auto-collapsing weekly summary */}
+        {entries.length >= 3 && (
+          <WeeklyDigest
+            entries={entries}
+            category={cat}
+            userId={user?.uid}
+          />
+        )}
+
+        {/* Quick Stats Bar - Mood trend, streak, entry distribution */}
+        {entries.length > 0 && (
+          <QuickStatsBar
+            entries={entries}
+            category={cat}
+          />
+        )}
+
         {/* Mood Heatmap */}
         {entries.length > 0 && (
           <MoodHeatmap
             entries={visible}
             onDayClick={(date, dayData) => setDailySummaryModal({ date, dayData })}
+          />
+        )}
+
+        {/* Goals Progress - Active goals with status tracking */}
+        {entries.length > 0 && (
+          <GoalsProgress
+            entries={entries}
+            category={cat}
+          />
+        )}
+
+        {/* Situation Timeline - Connected multi-entry stories */}
+        {entries.length > 0 && (
+          <SituationTimeline
+            entries={entries}
+            category={cat}
+            onEntryClick={(entryId) => {
+              // Could navigate to entry or show modal
+              console.log('Navigate to entry:', entryId);
+            }}
           />
         )}
 
