@@ -15,18 +15,22 @@ export const sanitizeEntry = (id, data) => {
       completed: Boolean(task?.completed),
       recurrence: task?.recurrence || null,
       nextDueDate: task?.nextDueDate || null,
-      lastCompletedAt: task?.lastCompletedAt || null
+      lastCompletedAt: task?.lastCompletedAt || null,
     };
   };
 
   return {
-    id: id,
+    id,
     text: safeString(data.text),
     category: safeString(data.category) || 'personal',
     tags: Array.isArray(data.tags)
-      ? data.tags.map(t => typeof t === 'string' ? t : (t?.text || safeString(t)))
+      ? data.tags.map(t => {
+          if (typeof t === 'string') return t;
+          if (t?.text && typeof t.text === 'string') return t.text;
+          return safeString(t);
+        })
       : [],
-    title: safeString(data.title) || safeString(data.analysis?.summary) || "Untitled Memory",
+    title: safeString(data.title) || safeString(data.analysis?.summary) || 'Untitled Memory',
     analysis: data.analysis || { mood_score: 0.5 },
     analysisStatus: data.analysisStatus || 'complete',
     embedding: data.embedding || null,
@@ -45,6 +49,6 @@ export const sanitizeEntry = (id, data) => {
       ? data.extracted_tasks.map(normalizeTask)
       : [],
     // Context version for retrofit tracking (v1 = enhanced context extracted)
-    context_version: data.context_version || 0
+    context_version: data.context_version || 0,
   };
 };
