@@ -969,6 +969,7 @@ export default function App() {
           <GoalsProgress
             entries={entries}
             category={cat}
+            userId={user?.uid}
           />
         )}
 

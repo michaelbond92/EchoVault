@@ -1,6 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Target, ChevronDown, ChevronUp, TrendingUp, Check, AlertTriangle, Pause } from 'lucide-react';
+import { Target, ChevronDown, TrendingUp, Check, AlertTriangle, Pause, X } from 'lucide-react';
+import { db, doc, setDoc, Timestamp } from '../../../config/firebase';
+import { getDoc } from 'firebase/firestore';
+import { APP_COLLECTION_ID } from '../../../config/constants';
 
 /**
  * GoalsProgress - Collapsible section showing active goals with status tracking
@@ -10,10 +13,78 @@ import { Target, ChevronDown, ChevronUp, TrendingUp, Check, AlertTriangle, Pause
  * - achieved: Goal completed
  * - struggling: Having difficulty
  * - abandoned: No longer pursuing
+ *
+ * Goals can be dismissed (hidden) by the user - stored in Firestore.
  */
 
-const GoalsProgress = ({ entries, category }) => {
+const GoalsProgress = ({ entries, category, userId }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [dismissedGoals, setDismissedGoals] = useState(new Set());
+  const [loadingDismissed, setLoadingDismissed] = useState(true);
+
+  // Load dismissed goals from Firestore
+  useEffect(() => {
+    if (!userId) {
+      setLoadingDismissed(false);
+      return;
+    }
+
+    const loadDismissed = async () => {
+      try {
+        const dismissedRef = doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'preferences', 'dismissedGoals');
+        const snap = await getDoc(dismissedRef);
+
+        if (snap.exists()) {
+          const data = snap.data();
+          // Filter to only include goals for this category
+          const categoryDismissed = data[category] || [];
+          setDismissedGoals(new Set(categoryDismissed));
+        }
+      } catch (e) {
+        console.error('Failed to load dismissed goals:', e);
+      } finally {
+        setLoadingDismissed(false);
+      }
+    };
+
+    loadDismissed();
+  }, [userId, category]);
+
+  // Dismiss a goal
+  const dismissGoal = useCallback(async (goalTag) => {
+    if (!userId) return;
+
+    // Optimistic update
+    setDismissedGoals(prev => new Set([...prev, goalTag]));
+
+    try {
+      const dismissedRef = doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'preferences', 'dismissedGoals');
+      const snap = await getDoc(dismissedRef);
+
+      const existingData = snap.exists() ? snap.data() : {};
+      const categoryDismissed = existingData[category] || [];
+
+      if (!categoryDismissed.includes(goalTag)) {
+        categoryDismissed.push(goalTag);
+      }
+
+      await setDoc(dismissedRef, {
+        ...existingData,
+        [category]: categoryDismissed,
+        updatedAt: Timestamp.now()
+      }, { merge: true });
+
+      console.log('Goal dismissed:', goalTag);
+    } catch (e) {
+      console.error('Failed to dismiss goal:', e);
+      // Revert optimistic update
+      setDismissedGoals(prev => {
+        const next = new Set(prev);
+        next.delete(goalTag);
+        return next;
+      });
+    }
+  }, [userId, category]);
 
   const goals = useMemo(() => {
     // Filter to category
@@ -68,13 +139,15 @@ const GoalsProgress = ({ entries, category }) => {
       }
     });
 
-    // Convert to array and sort by last mentioned
+    // Convert to array, filter dismissed, sort by last mentioned
     return Array.from(goalMap.values())
+      .filter(g => !dismissedGoals.has(g.tag))
       .sort((a, b) => b.lastMentioned - a.lastMentioned)
       .slice(0, 5); // Show top 5 goals
-  }, [entries, category]);
+  }, [entries, category, dismissedGoals]);
 
-  // Don't render if no goals
+  // Don't render if loading or no goals
+  if (loadingDismissed) return null;
   if (goals.length === 0) return null;
 
   const getStatusIcon = (status) => {
@@ -169,8 +242,9 @@ const GoalsProgress = ({ entries, category }) => {
                   key={goal.tag}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10, height: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`p-3 rounded-xl border ${getStatusColor(goal.status)}`}
+                  className={`p-3 rounded-xl border ${getStatusColor(goal.status)} group relative`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2 flex-1 min-w-0">
@@ -186,9 +260,24 @@ const GoalsProgress = ({ entries, category }) => {
                         </p>
                       </div>
                     </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/50`}>
-                      {getStatusLabel(goal.status)}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/50`}>
+                        {getStatusLabel(goal.status)}
+                      </span>
+                      {/* Dismiss button - visible on hover */}
+                      <motion.button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dismissGoal(goal.tag);
+                        }}
+                        className="p-1 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/50 transition-all"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        title="Dismiss goal"
+                      >
+                        <X size={12} className="text-warm-400 hover:text-warm-600" />
+                      </motion.button>
+                    </div>
                   </div>
                 </motion.div>
               ))}
