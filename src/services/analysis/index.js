@@ -1,6 +1,7 @@
 import { callGemini } from '../ai';
 import { cosineSimilarity } from '../ai/embeddings';
 import { AI_CONFIG } from '../../config';
+import { parseAIJson } from '../../utils/string';
 
 /**
  * Classify entry into type: task, mixed, reflection, or vent
@@ -34,8 +35,7 @@ export const classifyEntry = async (text) => {
       return { entry_type: 'reflection', confidence: 0.5, extracted_tasks: [] };
     }
 
-    const jsonStr = raw.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(jsonStr);
+    const parsed = parseAIJson(raw);
 
     return {
       entry_type: parsed.entry_type || 'reflection',
@@ -113,8 +113,7 @@ export const analyzeEntry = async (text, entryType = 'reflection') => {
         };
       }
 
-      const jsonStr = raw.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(jsonStr);
+      const parsed = parseAIJson(raw);
 
       return {
         title: parsed.title || text.substring(0, 50) + (text.length > 50 ? '...' : ''),
@@ -210,8 +209,7 @@ export const analyzeEntry = async (text, entryType = 'reflection') => {
       };
     }
 
-    const jsonStr = raw.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(jsonStr);
+    const parsed = parseAIJson(raw);
 
     const result = {
       title: parsed.title || text.substring(0, 50) + (text.length > 50 ? '...' : ''),
@@ -439,8 +437,7 @@ export const generateInsight = async (current, relevantHistory, recentHistory, a
       return null;
     }
 
-    const jsonStr = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(jsonStr);
+    return parseAIJson(raw);
   } catch (e) {
     console.error('generateInsight error:', e);
     return null;
@@ -507,8 +504,7 @@ export const extractEnhancedContext = async (text, recentEntries = []) => {
     const raw = await callGemini(prompt, text, AI_CONFIG.classification.primary);
     if (!raw) return { structured_tags: [], topic_tags: [], continues_situation: null, goal_update: null };
 
-    const jsonStr = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(jsonStr);
+    return parseAIJson(raw);
   } catch (e) {
     console.error('extractEnhancedContext error:', e);
     return { structured_tags: [], topic_tags: [], continues_situation: null, goal_update: null };
