@@ -835,19 +835,9 @@ export default function App() {
         >
           <Activity className="text-white"/>
         </motion.div>
-        <motion.h1
-          className="text-2xl font-display font-bold mb-6 text-warm-800"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
+        <h1 className="text-2xl font-display font-bold mb-6 text-warm-800">
           EchoVault
-        </motion.h1>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-      >
+        </h1>
         <Button
           variant="secondary"
           onClick={handleSignIn}
@@ -855,7 +845,6 @@ export default function App() {
         >
           <LogIn size={18}/> Sign in with Google
         </Button>
-      </motion.div>
     </div>
     );
   }
