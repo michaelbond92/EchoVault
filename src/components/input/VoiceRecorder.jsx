@@ -27,9 +27,22 @@ const VoiceRecorder = ({ onSave, onSwitch, loading, minimal }) => {
       const chunks = [];
       r.ondataavailable = e => chunks.push(e.data);
       r.onstop = () => {
+        const blob = new Blob(chunks, { type: mime });
+        console.log('[EchoVault] Recording stopped:', {
+          duration: `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`,
+          blobSize: `${(blob.size / 1024).toFixed(1)} KB`,
+          mimeType: mime,
+          chunks: chunks.length
+        });
         const reader = new FileReader();
-        reader.readAsDataURL(new Blob(chunks, { type: mime }));
-        reader.onloadend = () => onSave(reader.result.split(',')[1], mime);
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+          const base64 = reader.result.split(',')[1];
+          console.log('[EchoVault] Audio encoded to base64:', {
+            base64Length: `${(base64.length / 1024).toFixed(1)} KB`
+          });
+          onSave(base64, mime);
+        };
         stream.getTracks().forEach(t => t.stop());
       };
       r.start();
