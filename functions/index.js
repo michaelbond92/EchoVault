@@ -673,12 +673,15 @@ export const generateEmbedding = onCall(
 
 /**
  * Cloud Function: Transcribe audio using Whisper
+ * Supports recordings up to ~10 minutes (Whisper API limit is 25MB)
  */
 export const transcribeAudio = onCall(
   {
     secrets: [openaiApiKey],
     cors: true,
-    maxInstances: 5
+    maxInstances: 5,
+    timeoutSeconds: 540,  // 9 minutes (max allowed) for very long recordings
+    memory: '1GiB'        // More memory for large audio processing
   },
   async (request) => {
     if (!request.auth) {
