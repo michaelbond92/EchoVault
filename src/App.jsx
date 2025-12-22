@@ -500,10 +500,10 @@ export default function App() {
     // Wrap embedding generation with timeout for mobile reliability
     let embedding = null;
     try {
-      // Set a 15-second timeout for embedding generation (mobile connections can be slow)
+      // Set a 60-second timeout for embedding generation (very long entries need more time)
       const embeddingPromise = generateEmbedding(finalTex);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Embedding timeout')), 15000)
+        setTimeout(() => reject(new Error('Embedding timeout')), 60000)
       );
       embedding = await Promise.race([embeddingPromise, timeoutPromise]);
     } catch (embeddingError) {
@@ -697,11 +697,11 @@ export default function App() {
     }
 
     // Detect temporal context (Phase 2)
-    // Add timeout for mobile reliability
+    // Add timeout for mobile reliability (45s for very long entries)
     try {
       const temporalPromise = detectTemporalContext(textInput);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Temporal detection timeout')), 10000)
+        setTimeout(() => reject(new Error('Temporal detection timeout')), 45000)
       );
       const temporal = await Promise.race([temporalPromise, timeoutPromise]);
       console.log('Temporal detection result:', {
