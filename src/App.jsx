@@ -132,7 +132,8 @@ export default function App() {
   const [showJournal, setShowJournal] = useState(false);
 
   // Temporal Context (Phase 2) - for backdating entries
-  const [pendingTemporalEntry, setPendingTemporalEntry] = useState(null);
+  // DEPRECATED: Old temporal confirmation modal state - replaced by signal extraction (DetectedStrip)
+  // const [pendingTemporalEntry, setPendingTemporalEntry] = useState(null);
 
   // Signal extraction (temporal redesign) - detected signals for confirmation
   const [detectedSignals, setDetectedSignals] = useState([]);
@@ -560,17 +561,17 @@ export default function App() {
 
     const hasWarning = checkWarningIndicators(finalTex);
 
-    // Calculate effectiveDate - either from temporal detection or current time
+    // TEMPORAL REDESIGN: Always use current date for effectiveDate.
+    // Temporal attribution is now handled by signals, not by backdating entries.
+    // effectiveDate is kept for backwards compatibility with old entries.
     const now = new Date();
-    const effectiveDate = temporalContext?.detected && temporalContext?.effectiveDate
-      ? temporalContext.effectiveDate
-      : now;
+    const effectiveDate = now;  // Always current date - signals handle temporal attribution
 
     console.log('Saving entry with:', {
       hasTemporalContext: !!temporalContext,
       temporalDetected: temporalContext?.detected,
       effectiveDate: effectiveDate.toDateString(),
-      isBackdated: effectiveDate.toDateString() !== now.toDateString()
+      note: 'effectiveDate is always current date now - signals handle temporal attribution'
     });
 
     // If offline, queue the entry for later processing
@@ -845,70 +846,39 @@ export default function App() {
         reasoning: temporal.reasoning
       });
 
+      // TEMPORAL REDESIGN: No longer backdate entries or show confirmation modal.
+      // All entries are saved with current date (recordedAt).
+      // Temporal attribution is now handled by signal extraction (DetectedStrip UI).
+      // The temporal context is still passed to doSaveEntry for backwards compat,
+      // but effectiveDate is now always set to current date.
+
       if (temporal.detected) {
-        // Check if effectiveDate is actually different from today
-        const now = new Date();
-        const effectiveDate = temporal.effectiveDate instanceof Date ? temporal.effectiveDate : new Date(temporal.effectiveDate);
-        const isToday = effectiveDate.toDateString() === now.toDateString();
-
-        console.log('[SaveEntry] Date comparison:', {
-          effectiveDate: effectiveDate.toDateString(),
-          today: now.toDateString(),
-          isToday
-        });
-
-        // If the detected date is today, skip confirmation - no backdating needed
-        if (isToday) {
-          console.log('[SaveEntry] Detected date is today, saving normally without backdating');
-          await doSaveEntry(textInput, false, null, temporal);
-          return;
-        }
-
-        if (needsConfirmation(temporal)) {
-          // Medium confidence - ask user to confirm
-          console.log('[SaveEntry] Needs confirmation, showing temporal modal');
-          console.log('[SaveEntry] Setting pendingTemporalEntry state...');
-          setPendingTemporalEntry({
-            text: textInput,
-            temporal
-          });
-          setProcessing(false);
-          console.log('[SaveEntry] Modal should now be visible. Entry will save after user confirms.');
-          return;
-        }
-
-        // High confidence - auto-apply backdating
-        if (temporal.confidence > 0.8) {
-          console.log(`[SaveEntry] Auto-backdating entry to ${formatEffectiveDate(temporal.effectiveDate)}`);
-          await doSaveEntry(textInput, false, null, temporal);
-          return;
-        }
+        console.log('[SaveEntry] Temporal content detected - signals will handle attribution');
+        console.log('[SaveEntry] Skipping backdate modal (deprecated) - using signal extraction instead');
       }
 
-      // No temporal context or low confidence - save with current date
-      await doSaveEntry(textInput);
+      // Always save with current date - signals handle temporal attribution
+      await doSaveEntry(textInput, false, null, temporal.detected ? temporal : null);
     } catch (e) {
       console.error('Temporal detection failed, saving normally:', e);
       await doSaveEntry(textInput);
     }
   };
 
-  // Handle temporal confirmation response
-  const handleTemporalConfirm = async (confirmed) => {
-    if (!pendingTemporalEntry) return;
-
-    const { text, temporal } = pendingTemporalEntry;
-    setPendingTemporalEntry(null);
-    setProcessing(true);
-
-    if (confirmed) {
-      // User confirmed - save with backdated date
-      await doSaveEntry(text, false, null, temporal);
-    } else {
-      // User declined - save with current date
-      await doSaveEntry(text, false, null, null);
-    }
-  };
+  // DEPRECATED: Old temporal confirmation modal handler - replaced by signal extraction (DetectedStrip)
+  // The backdating flow is now handled via signal extraction where users confirm/dismiss
+  // detected temporal signals rather than choosing to backdate the entire entry.
+  // const handleTemporalConfirm = async (confirmed) => {
+  //   if (!pendingTemporalEntry) return;
+  //   const { text, temporal } = pendingTemporalEntry;
+  //   setPendingTemporalEntry(null);
+  //   setProcessing(true);
+  //   if (confirmed) {
+  //     await doSaveEntry(text, false, null, temporal);
+  //   } else {
+  //     await doSaveEntry(text, false, null, null);
+  //   }
+  // };
 
   // Handle signal confirmation (DetectedStrip)
   const handleSignalConfirmAll = useCallback(async () => {
@@ -1178,7 +1148,11 @@ export default function App() {
         />
       )}
 
-      {/* Temporal Context Confirmation Modal */}
+      {/* DEPRECATED: Temporal Context Confirmation Modal
+          This modal has been replaced by the signal extraction system (DetectedStrip).
+          Instead of asking users to backdate entire entries, we now extract temporal
+          signals and let users confirm/dismiss them individually.
+
       {pendingTemporalEntry && (
         <Modal onClose={() => {
           setPendingTemporalEntry(null);
@@ -1224,6 +1198,7 @@ export default function App() {
           </ModalBody>
         </Modal>
       )}
+      */}
 
       {crisisResources && (
         <CrisisResourcesScreen
