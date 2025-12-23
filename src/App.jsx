@@ -723,10 +723,12 @@ export default function App() {
   const saveEntry = async (textInput) => {
     if (!user) return;
     setProcessing(true);
+    console.log('[SaveEntry] Starting save process, text length:', textInput.length);
 
     // Check for crisis keywords first (safety priority)
     const hasCrisis = checkCrisisKeywords(textInput);
     if (hasCrisis) {
+      console.log('[SaveEntry] Crisis keywords detected, showing modal');
       setPendingEntry({ text: textInput, safetyFlagged: true });
       setCrisisModal(true);
       setProcessing(false);
@@ -741,7 +743,7 @@ export default function App() {
         setTimeout(() => reject(new Error('Temporal detection timeout')), 45000)
       );
       const temporal = await Promise.race([temporalPromise, timeoutPromise]);
-      console.log('Temporal detection result:', {
+      console.log('[SaveEntry] Temporal detection result:', {
         detected: temporal.detected,
         effectiveDate: temporal.effectiveDate,
         reference: temporal.reference,
@@ -753,19 +755,40 @@ export default function App() {
       });
 
       if (temporal.detected) {
+        // Check if effectiveDate is actually different from today
+        const now = new Date();
+        const effectiveDate = temporal.effectiveDate instanceof Date ? temporal.effectiveDate : new Date(temporal.effectiveDate);
+        const isToday = effectiveDate.toDateString() === now.toDateString();
+
+        console.log('[SaveEntry] Date comparison:', {
+          effectiveDate: effectiveDate.toDateString(),
+          today: now.toDateString(),
+          isToday
+        });
+
+        // If the detected date is today, skip confirmation - no backdating needed
+        if (isToday) {
+          console.log('[SaveEntry] Detected date is today, saving normally without backdating');
+          await doSaveEntry(textInput, false, null, temporal);
+          return;
+        }
+
         if (needsConfirmation(temporal)) {
           // Medium confidence - ask user to confirm
+          console.log('[SaveEntry] Needs confirmation, showing temporal modal');
+          console.log('[SaveEntry] Setting pendingTemporalEntry state...');
           setPendingTemporalEntry({
             text: textInput,
             temporal
           });
           setProcessing(false);
+          console.log('[SaveEntry] Modal should now be visible. Entry will save after user confirms.');
           return;
         }
 
         // High confidence - auto-apply backdating
         if (temporal.confidence > 0.8) {
-          console.log(`Auto-backdating entry to ${formatEffectiveDate(temporal.effectiveDate)}`);
+          console.log(`[SaveEntry] Auto-backdating entry to ${formatEffectiveDate(temporal.effectiveDate)}`);
           await doSaveEntry(textInput, false, null, temporal);
           return;
         }
