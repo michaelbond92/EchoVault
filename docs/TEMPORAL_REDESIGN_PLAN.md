@@ -35,7 +35,7 @@ Create a new `signals` subcollection under each user:
 // Firestore: users/{userId}/signals/{signalId}
 signal = {
   id: string,                    // Auto-generated
-  entryId: string,               // Reference to source entry
+  entryId: string,               // Reference to source entry (for wipe-and-replace on edit)
   userId: string,                // For querying
 
   // Temporal
@@ -50,15 +50,32 @@ signal = {
 
   // Confidence & verification
   confidence: number,            // 0-1, from AI
-  confirmed: boolean,            // User verified via Detected strip
-  dismissed: boolean,            // User dismissed this signal
+  status: 'active' | 'verified' | 'dismissed',  // Soft-delete via status (for learning/undo)
 
-  // For recurring
+  // For recurring (7-day horizon) vs one-off (unlimited horizon)
   isRecurring: boolean,
   recurringPattern: string | null,  // "every_monday", etc.
 
   // Metadata
   createdAt: Timestamp,
+  updatedAt: Timestamp
+}
+
+// Firestore: users/{userId}/day_summaries/{YYYY-MM-DD}
+// Aggregated view for efficient heatmap/calendar queries (30 reads vs hundreds)
+day_summary = {
+  date: string,                  // "2024-01-15"
+  signalCount: number,
+  avgSentiment: number,          // -1 to 1 scale
+  hasEvents: boolean,
+  hasPlans: boolean,
+  hasFeelings: boolean,
+  entryCount: number,
+  breakdown: {
+    positive: number,
+    negative: number,
+    neutral: number
+  },
   updatedAt: Timestamp
 }
 ```
@@ -399,45 +416,113 @@ const DetectedStrip = ({ signals, onConfirm, onDismiss, onEdit }) => {
 // └─────────────────────────────────────────────────┘
 ```
 
-### 4.2 Integration with Save Flow
+### 4.2 Integration with Save Flow (Non-Blocking)
+
+The key insight: **Save immediately, extract in parallel, auto-accept if ignored.**
 
 ```javascript
-// In App.jsx saveEntry flow
+// In App.jsx - refactored to use processEntrySignals service
 
 const saveEntry = async (textInput) => {
-  // 1. Extract signals
-  const { signals, hasTemporalContent } = await extractSignals(textInput);
+  const now = new Date();
 
-  // 2. Save entry with recording timestamp (always today)
+  // 1. Save entry IMMEDIATELY (fast path - user sees success)
   const entry = await saveEntryToFirestore({
     text: textInput,
     createdAt: now,
     recordedAt: now,  // NEW: immutable recording date
-    // NO effectiveDate manipulation
-    pendingSignals: signals,  // Awaiting confirmation
     signalExtractionVersion: 1,
   });
 
-  // 3. If signals detected, show Detected Strip
+  // Show immediate success feedback
+  setEntrySaved(true);
+
+  // 2. Extract signals IN PARALLEL (non-blocking)
+  setExtractionStatus('analyzing');  // Shows "Analyzing timeline..." loader
+
+  const { signals, hasTemporalContent } = await processEntrySignals(entry, textInput);
+
+  // 3. If signals with temporal content, show Detected Strip (toast-style)
   if (signals.length > 0 && hasTemporalContent) {
-    setPendingSignals(signals);
-    setShowDetectedStrip(true);
+    setDetectedSignals(signals);
+    setShowDetectedStrip(true);  // Toast/banner pops in
+
+    // Auto-accept high-confidence signals after 10 seconds if user ignores
+    setTimeout(() => {
+      if (showDetectedStrip) {
+        autoAcceptHighConfidenceSignals(entry.id, signals);
+      }
+    }, 10000);
   } else {
-    // Auto-confirm simple entries
+    // Simple entry - auto-confirm immediately
     await confirmSignals(entry.id, signals);
   }
+
+  setExtractionStatus('complete');
 };
 
-const handleConfirmSignals = async () => {
-  await confirmSignals(currentEntryId, pendingSignals);
+// Separate service function (keeps App.jsx clean)
+// src/services/signals/processEntrySignals.js
+export const processEntrySignals = async (entry, text) => {
+  const { signals, hasTemporalContent, reasoning } = await extractSignals(text);
+
+  // Save signals to Firestore
+  await saveSignalsToFirestore(signals, entry.id, entry.userId);
+
+  // Update day_summaries for affected dates (via Cloud Function or inline)
+  await updateDaySummaries(signals);
+
+  return { signals, hasTemporalContent };
+};
+
+const autoAcceptHighConfidenceSignals = async (entryId, signals) => {
+  const highConfidence = signals.filter(s => s.confidence >= 0.7);
+  const lowConfidence = signals.filter(s => s.confidence < 0.7);
+
+  // Auto-verify high confidence
+  await batchUpdateSignalStatus(highConfidence, 'verified');
+
+  // Keep low confidence as 'active' (visible on entry card for later review)
   setShowDetectedStrip(false);
-  setPendingSignals([]);
+};
+```
+
+### 4.3 Entry Edit Handling (Wipe and Replace)
+
+When a user edits entry text, signals must stay synchronized:
+
+```javascript
+// src/services/signals/index.js
+
+export const handleEntryEdit = async (entryId, newText, userId) => {
+  // 1. Delete all existing signals for this entry
+  await deleteSignalsForEntry(entryId, userId);
+
+  // 2. Re-extract from new text
+  const { signals, hasTemporalContent } = await extractSignals(newText);
+
+  // 3. Save fresh signals
+  await saveSignalsToFirestore(signals, entryId, userId);
+
+  // 4. Update affected day_summaries
+  await rebuildDaySummariesForEntry(entryId, userId);
+
+  return { signals, hasTemporalContent };
 };
 
-const handleDismissSignal = async (signalId) => {
-  setPendingSignals(prev => prev.map(s =>
-    s.id === signalId ? { ...s, dismissed: true } : s
-  ));
+// Called from App.jsx handleEntryUpdate
+const handleEntryUpdate = async (entryId, newText, newTags) => {
+  // Update entry text/tags
+  await updateEntryInFirestore(entryId, { text: newText, tags: newTags });
+
+  // Wipe and replace signals
+  const { signals, hasTemporalContent } = await handleEntryEdit(entryId, newText, user.uid);
+
+  // Optionally show DetectedStrip again if temporal content found
+  if (hasTemporalContent) {
+    setDetectedSignals(signals);
+    setShowDetectedStrip(true);
+  }
 };
 ```
 
@@ -518,19 +603,101 @@ const todayEntries = entries.filter(e =>
 const { score: todayScore } = await calculateDayScore(userId, today);
 ```
 
-### 6.2 Timeline View Updates
+### 6.2 JournalScreen Calendar Integration
+
+Instead of building a separate "Life Timeline" view, integrate signals into the existing Calendar mode:
 
 ```javascript
-// JournalScreen.jsx - show both timelines
+// JournalScreen.jsx - Calendar view shows signals alongside entries
 
-// Recording timeline (what was written when)
-const recordingTimeline = entries.sort((a, b) =>
-  b.recordedAt - a.recordedAt
-);
+const JournalCalendarView = ({ entries, signals, selectedDate }) => {
+  // Get entries RECORDED on selected date
+  const recordedEntries = entries.filter(e =>
+    isSameDay(e.recordedAt || e.createdAt, selectedDate)
+  );
 
-// Life timeline (what happened when) - optional view
-const lifeTimeline = await buildLifeTimeline(signals);
-// Groups by targetDate, shows events/feelings per day
+  // Get signals TARGETING this date (from any entry)
+  const dateSignals = signals.filter(s =>
+    isSameDay(s.targetDate, selectedDate) && s.status !== 'dismissed'
+  );
+
+  // Group signals by source: "mentioned in entries from other days"
+  const externalSignals = dateSignals.filter(s =>
+    !recordedEntries.some(e => e.id === s.entryId)
+  );
+
+  return (
+    <div>
+      {/* Today's actual entries */}
+      {recordedEntries.map(entry => (
+        <EntryCard key={entry.id} entry={entry} />
+      ))}
+
+      {/* Signals from other days that point to this day */}
+      {externalSignals.length > 0 && (
+        <div className="external-signals">
+          <h4>Also mentioned for this day:</h4>
+          {externalSignals.map(signal => (
+            <SignalChip
+              key={signal.id}
+              signal={signal}
+              showSource={true}  // "From entry on Dec 20th"
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Future plans for this day (if viewing future date) */}
+      {isFuture(selectedDate) && dateSignals.filter(s => s.type === 'plan').length > 0 && (
+        <div className="upcoming-plans">
+          <h4>Planned for this day:</h4>
+          {dateSignals.filter(s => s.type === 'plan').map(signal => (
+            <PlanCard key={signal.id} signal={signal} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+### 6.3 MoodHeatmap with Day Summaries (Optimized Reads)
+
+```javascript
+// MoodHeatmap.jsx - uses day_summaries for efficient rendering
+
+const MoodHeatmap = ({ userId }) => {
+  const [daySummaries, setDaySummaries] = useState({});
+
+  useEffect(() => {
+    // Single query for 30 days of summaries (30 reads, not 30 * N signals)
+    const loadSummaries = async () => {
+      const last30Days = getLast30DayStrings();
+      const summaries = await getDaySummaries(userId, last30Days);
+      setDaySummaries(summaries);
+    };
+    loadSummaries();
+  }, [userId]);
+
+  const getDayData = (d) => {
+    const dateStr = formatDateKey(d);  // "2024-01-15"
+    const summary = daySummaries[dateStr];
+
+    if (!summary) {
+      return { avgMood: null, hasEntries: false, hasSignals: false };
+    }
+
+    return {
+      avgMood: summary.avgSentiment,  // Pre-computed
+      hasEntries: summary.entryCount > 0,
+      hasSignals: summary.signalCount > 0,
+      signalCount: summary.signalCount,
+      breakdown: summary.breakdown,
+    };
+  };
+
+  // ... rest of component
+};
 ```
 
 ---
@@ -571,15 +738,20 @@ const lifeTimeline = await buildLifeTimeline(signals);
 
 | File | Changes |
 |------|---------|
-| `src/services/temporal/index.js` | Keep for backwards compat, add signalExtractor.js |
-| `src/services/temporal/signalExtractor.js` | NEW - core extraction logic |
-| `src/services/signals/index.js` | NEW - signal CRUD operations |
-| `src/services/scoring/dayScore.js` | NEW - signal-based day scoring |
-| `src/App.jsx` | Modify saveEntry flow, remove temporal modal |
-| `src/components/entries/DetectedStrip.jsx` | NEW - confirmation UI |
-| `src/components/entries/MoodHeatmap.jsx` | Use new scoring |
+| `src/services/temporal/index.js` | **DEPRECATE** - stop returning effectiveDate, keep for pattern matching only |
+| `src/services/temporal/signalExtractor.js` | **NEW** - core extraction logic, returns Array<Signal> |
+| `src/services/signals/index.js` | **NEW** - signal CRUD, wipe-and-replace on edit |
+| `src/services/signals/processEntrySignals.js` | **NEW** - orchestrates extraction + save + summary update |
+| `src/services/signals/daySummaries.js` | **NEW** - aggregate management for efficient queries |
+| `src/services/scoring/dayScore.js` | **NEW** - signal-based day scoring (entry mood + signal adjustments) |
+| `src/App.jsx` | Extract signal logic to service, remove temporal modal, add DetectedStrip |
+| `src/components/entries/DetectedStrip.jsx` | **NEW** - toast/banner confirmation UI |
+| `src/components/entries/SignalChip.jsx` | **NEW** - reusable signal display chip |
+| `src/components/entries/MoodHeatmap.jsx` | Use day_summaries for efficient reads |
+| `src/components/screens/JournalScreen.jsx` | Calendar view shows signals for selected date |
 | `src/hooks/useDashboardMode.js` | Use recordedAt, signal-based mood |
-| `firestore.rules` | Add signals collection rules |
+| `firestore.rules` | Add signals + day_summaries collection rules |
+| `functions/index.js` | **NEW** Cloud Function trigger for day_summary updates (optional) |
 
 ---
 
@@ -587,11 +759,13 @@ const lifeTimeline = await buildLifeTimeline(signals);
 
 | Risk | Mitigation |
 |------|------------|
-| AI extraction is less accurate than single-date detection | Detected Strip lets users correct; default to today when uncertain |
-| Migration breaks existing data | Keep effectiveDate for old entries, gradual migration |
-| Performance (more Firestore reads) | Use composite indexes, cache signals per day |
+| AI extraction is less accurate than single-date detection | Detected Strip lets users correct; auto-accept high confidence; default to today when uncertain |
+| Migration breaks existing data | Keep effectiveDate for old entries, gradual migration, backwards compat |
+| Performance (more Firestore reads) | **day_summaries** collection - 30 reads for heatmap, not hundreds |
 | Complex entries with many signals | Limit to 5 signals per entry, merge similar ones |
-| User confusion about two timelines | Default to recording timeline, life timeline is optional |
+| User closes app before confirming signals | Auto-accept high-confidence after 10s timeout; show unconfirmed on EntryCard |
+| Entry edits desync signals | Wipe-and-replace strategy - delete old signals, re-extract fresh |
+| Extraction latency blocks save | Save entry first (immediate feedback), extract in parallel (non-blocking) |
 
 ---
 
@@ -602,13 +776,62 @@ const lifeTimeline = await buildLifeTimeline(signals);
 3. **Future anxieties tracked properly** - "Nervous about tomorrow" → check-in appears tomorrow
 4. **Day scores more accurate** - Retroactive mentions improve past day scores
 5. **User transparency** - Detected Strip shows exactly what was understood
+6. **Mobile reliability** - No hidden modals blocking saves
 
 ---
 
-## Open Questions for Review
+## Resolved Design Decisions
 
-1. **Signal persistence**: Should dismissed signals be soft-deleted or hard-deleted?
-2. **Edit history**: When user edits a signal, store original or replace?
-3. **Recurring limits**: Currently 7-day horizon - increase?
-4. **Life timeline view**: Build as separate screen or inline in journal?
-5. **Signal types**: Is feeling/event/plan sufficient or need more granularity?
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Signal persistence | **Soft-delete** with `status: 'dismissed'` | Training data for AI improvement; enables undo; filter with `where('status', '!=', 'dismissed')` |
+| Life timeline view | **Integrate into JournalScreen Calendar** | No separate view; clicking a day shows entries + signals for that day |
+| Detected Strip timing | **Immediate toast/banner** after save | Closes cognitive loop ("system heard me"); fallback on EntryCard if missed |
+| Recurring horizon | **7 days for recurring, unlimited for one-off** | Prevents infinite generation for "every Monday"; allows "wedding in September" |
+| Entry mood vs signals | **Keep both** | Entry `mood_score` = how user felt when speaking; signal `sentiment` = emotional context of the fact. They measure different things. |
+| Entry edit handling | **Wipe and replace** | Delete all signals for entry, re-extract from new text. Simpler than diffing. |
+
+---
+
+## Firestore Rules Addition
+
+```javascript
+// firestore.rules
+match /users/{userId}/signals/{signalId} {
+  allow read, write: if request.auth.uid == userId;
+}
+
+match /users/{userId}/day_summaries/{dateId} {
+  allow read: if request.auth.uid == userId;
+  allow write: if request.auth.uid == userId || request.auth.token.admin == true;  // Allow Cloud Function writes
+}
+```
+
+---
+
+## The "Prism" Distinction (Entry Mood vs Signal Sentiment)
+
+This is a key architectural insight worth highlighting:
+
+| Concept | Measures | Example |
+|---------|----------|---------|
+| **Entry mood_score** | "How I felt when speaking" (recording context) | "I'm so relieved the project is over!" → High positive mood |
+| **Signal sentiment** | "How I feel about this fact" (life context) | Signal: "Project was stressful" → Negative sentiment |
+
+**Why both matter:**
+- You might be *happy* (entry mood) that you finally quit a *toxic job* (negative event signal)
+- Averaging them = "neutral" which is **wrong**
+- Keeping both lets the system say: "You often sound relieved when discussing difficult life changes"
+
+```javascript
+// Day score uses BOTH
+const calculateDayScore = (entries, signals) => {
+  // Entry mood = primary baseline (direct measurement)
+  const entryMoodAvg = average(entries.map(e => e.analysis?.mood_score));
+
+  // Signals = adjustments (contextual layer)
+  const signalAdjustment = signals.reduce((sum, s) => sum + sentimentToScore(s), 0);
+
+  return clamp(entryMoodAvg + signalAdjustment, 0, 1);
+};
+```
