@@ -218,6 +218,24 @@ export default function App() {
 
           console.log(`Saved offline entry: ${offlineEntry.offlineId}`);
 
+          // Generate signals for offline entry (non-blocking)
+          // Note: We don't show DetectedStrip for offline entries since user may have
+          // recorded this entry hours/days ago - signals are just saved for calendar view
+          (async () => {
+            try {
+              const result = await processEntrySignals(
+                { id: ref.id, userId: user.uid, createdAt: offlineEntry.createdAt },
+                offlineEntry.text,
+                1  // Initial extraction version
+              );
+              if (result?.signals?.length > 0) {
+                console.log(`[Signals] Generated ${result.signals.length} signals for offline entry: ${ref.id}`);
+              }
+            } catch (signalError) {
+              console.error('[Signals] Failed to generate signals for offline entry:', signalError);
+            }
+          })();
+
           // Run analysis in background (same as online flow)
           (async () => {
             try {
