@@ -33,10 +33,12 @@ Create a new `signals` subcollection under each user:
 
 ```javascript
 // Firestore: users/{userId}/signals/{signalId}
+// This is the SINGLE SOURCE OF TRUTH for all signals (no redundant arrays on Entry)
 signal = {
   id: string,                    // Auto-generated
   entryId: string,               // Reference to source entry (for wipe-and-replace on edit)
   userId: string,                // For querying
+  extractionVersion: number,     // Matches entry.signalExtractionVersion (for race condition handling)
 
   // Temporal
   targetDate: Timestamp,         // The day this signal applies to
@@ -52,9 +54,11 @@ signal = {
   confidence: number,            // 0-1, from AI
   status: 'active' | 'verified' | 'dismissed',  // Soft-delete via status (for learning/undo)
 
-  // For recurring (7-day horizon) vs one-off (unlimited horizon)
-  isRecurring: boolean,
-  recurringPattern: string | null,  // "every_monday", etc.
+  // For recurring events: each occurrence is a SEPARATE document
+  // "Gym every Monday" → 4 distinct signal docs with different targetDates
+  isRecurringInstance: boolean,  // True if generated from recurring pattern
+  recurringPattern: string | null,  // "every_monday" (for grouping/display)
+  occurrenceIndex: number | null,   // 1, 2, 3, 4... (for ordering)
 
   // Metadata
   createdAt: Timestamp,
@@ -84,12 +88,14 @@ day_summary = {
 
 ```javascript
 // Modify entry schema
+// NOTE: Signals are stored ONLY in the signals collection (single source of truth)
+// NO pendingSignals array on Entry - query signals collection instead
 entry = {
   // KEEP (unchanged)
   id: string,
   text: string,
   createdAt: Timestamp,          // When recorded
-  analysis: { ... },             // AI analysis results
+  analysis: { ... },             // AI analysis results (includes mood_score)
   tags: [...],
   entry_type: string,
 
@@ -99,8 +105,8 @@ entry = {
   futureMentions: [...],         // Migrate to signals collection
 
   // NEW
-  signalExtractionVersion: number,  // Track if signals were extracted (v1 = new system)
-  pendingSignals: [...],           // Signals awaiting user confirmation (for Detected strip)
+  signalExtractionVersion: number,  // Increments on each edit (for race condition handling)
+  // To get pending signals: query signals collection where entryId == this.id
 }
 ```
 
@@ -463,14 +469,21 @@ const saveEntry = async (textInput) => {
 
 // Separate service function (keeps App.jsx clean)
 // src/services/signals/processEntrySignals.js
-export const processEntrySignals = async (entry, text) => {
+export const processEntrySignals = async (entry, text, extractionVersion) => {
   const { signals, hasTemporalContent, reasoning } = await extractSignals(text);
 
-  // Save signals to Firestore
-  await saveSignalsToFirestore(signals, entry.id, entry.userId);
+  // Check if entry was edited while we were processing (race condition guard)
+  const currentEntry = await getEntry(entry.id);
+  if (currentEntry.signalExtractionVersion !== extractionVersion) {
+    console.log('Entry was edited during extraction, discarding stale results');
+    return { signals: [], hasTemporalContent: false, stale: true };
+  }
 
-  // Update day_summaries for affected dates (via Cloud Function or inline)
-  await updateDaySummaries(signals);
+  // Save signals to Firestore with extraction version
+  await saveSignalsToFirestore(signals, entry.id, entry.userId, extractionVersion);
+
+  // NOTE: day_summaries are updated by Cloud Function trigger (not here)
+  // This ensures aggregation integrity even if client crashes
 
   return { signals, hasTemporalContent };
 };
@@ -702,35 +715,212 @@ const MoodHeatmap = ({ userId }) => {
 
 ---
 
+## Phase 7: Cloud Function & Infrastructure
+
+### 7.1 Day Summary Aggregation (Cloud Function)
+
+**Critical for data integrity.** Client-side aggregation is fragile - if the app crashes after saving signals but before updating summaries, the heatmap becomes permanently out of sync.
+
+```javascript
+// functions/src/signals.js
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+
+/**
+ * Trigger: Fires whenever a signal is created, updated, or deleted
+ * Action: Recalculates day_summary for the affected targetDate
+ */
+exports.onSignalChange = functions.firestore
+  .document('users/{userId}/signals/{signalId}')
+  .onWrite(async (change, context) => {
+    const { userId } = context.params;
+
+    // Get the targetDate from before/after (handle deletes)
+    const beforeData = change.before.exists ? change.before.data() : null;
+    const afterData = change.after.exists ? change.after.data() : null;
+
+    const affectedDates = new Set();
+    if (beforeData?.targetDate) {
+      affectedDates.add(formatDateKey(beforeData.targetDate.toDate()));
+    }
+    if (afterData?.targetDate) {
+      affectedDates.add(formatDateKey(afterData.targetDate.toDate()));
+    }
+
+    // Recalculate summary for each affected date
+    for (const dateKey of affectedDates) {
+      await recalculateDaySummary(userId, dateKey);
+    }
+  });
+
+async function recalculateDaySummary(userId, dateKey) {
+  const db = admin.firestore();
+
+  // Query all active signals for this date
+  const signalsSnap = await db
+    .collection(`users/${userId}/signals`)
+    .where('targetDate', '>=', startOfDay(dateKey))
+    .where('targetDate', '<', endOfDay(dateKey))
+    .where('status', '!=', 'dismissed')
+    .get();
+
+  const signals = signalsSnap.docs.map(d => d.data());
+
+  // Calculate aggregates
+  const summary = {
+    date: dateKey,
+    signalCount: signals.length,
+    avgSentiment: calculateAvgSentiment(signals),
+    hasEvents: signals.some(s => s.type === 'event'),
+    hasPlans: signals.some(s => s.type === 'plan'),
+    hasFeelings: signals.some(s => s.type === 'feeling'),
+    breakdown: {
+      positive: signals.filter(s => ['positive', 'excited'].includes(s.sentiment)).length,
+      negative: signals.filter(s => ['negative', 'anxious', 'dreading'].includes(s.sentiment)).length,
+      neutral: signals.filter(s => s.sentiment === 'neutral').length,
+    },
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // Also count entries recorded on this date
+  const entriesSnap = await db
+    .collection(`users/${userId}/entries`)
+    .where('recordedAt', '>=', startOfDay(dateKey))
+    .where('recordedAt', '<', endOfDay(dateKey))
+    .get();
+  summary.entryCount = entriesSnap.size;
+
+  // Write summary (upsert)
+  await db.doc(`users/${userId}/day_summaries/${dateKey}`).set(summary, { merge: true });
+}
+```
+
+### 7.2 Recurring Signal Generation
+
+When the extractor detects a recurring pattern, generate **N discrete signal documents** instead of relying on frontend logic:
+
+```javascript
+// src/services/signals/recurringGenerator.js
+
+const MAX_RECURRING_OCCURRENCES = 4;  // Generate up to 4 instances
+
+export const generateRecurringSignals = (pattern, baseSignal, currentDate) => {
+  const signals = [];
+  const occurrenceDates = calculateOccurrences(pattern, currentDate, MAX_RECURRING_OCCURRENCES);
+
+  occurrenceDates.forEach((targetDate, index) => {
+    signals.push({
+      ...baseSignal,
+      targetDate,
+      isRecurringInstance: true,
+      recurringPattern: pattern,
+      occurrenceIndex: index + 1,
+      // Each gets its own ID - they're independent documents
+    });
+  });
+
+  return signals;
+};
+
+// Example:
+// User says: "I have gym every Monday"
+// Current date: Monday Dec 23
+// Result: 4 signal documents created:
+//   { targetDate: Dec 30, content: "Gym", isRecurringInstance: true, occurrenceIndex: 1 }
+//   { targetDate: Jan 6,  content: "Gym", isRecurringInstance: true, occurrenceIndex: 2 }
+//   { targetDate: Jan 13, content: "Gym", isRecurringInstance: true, occurrenceIndex: 3 }
+//   { targetDate: Jan 20, content: "Gym", isRecurringInstance: true, occurrenceIndex: 4 }
+
+// Why this is better than a single "recurring" flag:
+// - Query is simple: where('targetDate', '==', nextMonday)
+// - No complex recurrence expansion logic on frontend
+// - Each instance can be individually dismissed/verified
+// - Display is straightforward: just show signals for the date
+```
+
+### 7.3 Race Condition Handling (Extraction Versioning)
+
+When a user rapidly edits an entry, multiple extractions may run concurrently. The version check ensures only the latest extraction's signals are saved:
+
+```javascript
+// src/services/signals/index.js
+
+export const saveSignalsWithVersionCheck = async (signals, entryId, userId, version) => {
+  const db = getFirestore();
+  const batch = writeBatch(db);
+
+  // First, delete any existing signals for this entry with older versions
+  const existingSnap = await getDocs(
+    query(
+      collection(db, `users/${userId}/signals`),
+      where('entryId', '==', entryId),
+      where('extractionVersion', '<', version)
+    )
+  );
+
+  existingSnap.forEach(doc => {
+    batch.delete(doc.ref);
+  });
+
+  // Then add new signals with current version
+  for (const signal of signals) {
+    const signalRef = doc(collection(db, `users/${userId}/signals`));
+    batch.set(signalRef, {
+      ...signal,
+      id: signalRef.id,
+      entryId,
+      userId,
+      extractionVersion: version,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  await batch.commit();
+};
+
+// Timeline of rapid edit scenario:
+// T0: User saves V1 → extractionVersion: 1 → extraction starts
+// T1: User edits to V2 → extractionVersion: 2 → extraction starts
+// T2: V1 extraction finishes → tries to save with version 1
+//     → Entry now has version 2 → DISCARD (stale)
+// T3: V2 extraction finishes → saves with version 2 → SUCCESS
+```
+
+---
+
 ## Implementation Order
 
 ### Milestone 1: Foundation (No Breaking Changes)
-1. [ ] Add signals collection schema to Firestore rules
+1. [ ] Add signals + day_summaries collection schema to Firestore rules
 2. [ ] Create signalExtractor.js with new AI prompt
-3. [ ] Create signals service (CRUD operations)
-4. [ ] Add signalExtractionVersion to entry schema
+3. [ ] Create signals service (CRUD with version check)
+4. [ ] Create recurringGenerator.js for multi-instance generation
+5. [ ] Add signalExtractionVersion to entry schema
+6. [ ] Deploy Cloud Function for day_summary aggregation
 
 ### Milestone 2: Parallel System (Both systems run)
-5. [ ] Modify saveEntry to also extract and store signals
-6. [ ] Build DetectedStrip component
-7. [ ] Integrate DetectedStrip into save flow
-8. [ ] Keep effectiveDate working for backwards compat
+7. [ ] Modify saveEntry to extract and store signals (non-blocking)
+8. [ ] Build DetectedStrip component (toast/banner style)
+9. [ ] Integrate DetectedStrip into save flow
+10. [ ] Add race condition handling (extraction versioning)
+11. [ ] Keep effectiveDate working for backwards compat
 
 ### Milestone 3: Score Migration
-9. [ ] Create dayScore service with signal-based calculation
-10. [ ] Update MoodHeatmap to use new scoring
-11. [ ] Update useDashboardMode
+12. [ ] Create dayScore service with signal-based calculation
+13. [ ] Update MoodHeatmap to use day_summaries (efficient reads)
+14. [ ] Update useDashboardMode
 
 ### Milestone 4: Follow-up System
-12. [ ] Build morning check-in service
-13. [ ] Build evening reflection prompts
-14. [ ] Integrate check-ins into dashboard
+15. [ ] Build morning check-in service
+16. [ ] Build evening reflection prompts
+17. [ ] Integrate check-ins into dashboard
 
 ### Milestone 5: Migration & Cleanup
-15. [ ] Create migration script for existing entries
-16. [ ] Run migration (can be incremental)
-17. [ ] Deprecate effectiveDate in new entries
-18. [ ] Remove confirmation modal (replaced by DetectedStrip)
+18. [ ] Create migration script for existing entries
+19. [ ] Run migration (can be incremental)
+20. [ ] Deprecate effectiveDate in new entries
+21. [ ] Remove confirmation modal (replaced by DetectedStrip)
 
 ---
 
@@ -740,9 +930,9 @@ const MoodHeatmap = ({ userId }) => {
 |------|---------|
 | `src/services/temporal/index.js` | **DEPRECATE** - stop returning effectiveDate, keep for pattern matching only |
 | `src/services/temporal/signalExtractor.js` | **NEW** - core extraction logic, returns Array<Signal> |
-| `src/services/signals/index.js` | **NEW** - signal CRUD, wipe-and-replace on edit |
-| `src/services/signals/processEntrySignals.js` | **NEW** - orchestrates extraction + save + summary update |
-| `src/services/signals/daySummaries.js` | **NEW** - aggregate management for efficient queries |
+| `src/services/signals/index.js` | **NEW** - signal CRUD with version check, wipe-and-replace |
+| `src/services/signals/processEntrySignals.js` | **NEW** - orchestrates extraction + save (no client-side aggregation) |
+| `src/services/signals/recurringGenerator.js` | **NEW** - generates N discrete signal docs for recurring patterns |
 | `src/services/scoring/dayScore.js` | **NEW** - signal-based day scoring (entry mood + signal adjustments) |
 | `src/App.jsx` | Extract signal logic to service, remove temporal modal, add DetectedStrip |
 | `src/components/entries/DetectedStrip.jsx` | **NEW** - toast/banner confirmation UI |
@@ -751,7 +941,7 @@ const MoodHeatmap = ({ userId }) => {
 | `src/components/screens/JournalScreen.jsx` | Calendar view shows signals for selected date |
 | `src/hooks/useDashboardMode.js` | Use recordedAt, signal-based mood |
 | `firestore.rules` | Add signals + day_summaries collection rules |
-| `functions/index.js` | **NEW** Cloud Function trigger for day_summary updates (optional) |
+| `functions/src/signals.js` | **NEW** - Cloud Function for day_summary aggregation (**required**) |
 
 ---
 
@@ -790,6 +980,10 @@ const MoodHeatmap = ({ userId }) => {
 | Recurring horizon | **7 days for recurring, unlimited for one-off** | Prevents infinite generation for "every Monday"; allows "wedding in September" |
 | Entry mood vs signals | **Keep both** | Entry `mood_score` = how user felt when speaking; signal `sentiment` = emotional context of the fact. They measure different things. |
 | Entry edit handling | **Wipe and replace** | Delete all signals for entry, re-extract from new text. Simpler than diffing. |
+| Signal storage | **Single source of truth** in signals collection | No `pendingSignals` array on Entry; query signals by entryId. Eliminates sync issues. |
+| Aggregation | **Cloud Function trigger** on signal write | Guarantees day_summary integrity even if client crashes. Not optional. |
+| Recurring storage | **N discrete signal documents** | Generate 4 separate docs for "gym every Monday". Simplifies querying, each dismissable independently. |
+| Race conditions | **Extraction versioning** | Signal.extractionVersion must match entry.signalExtractionVersion. Stale results discarded. |
 
 ---
 
