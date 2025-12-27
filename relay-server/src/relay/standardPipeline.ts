@@ -13,6 +13,45 @@ const openai = new OpenAI({
   apiKey: config.openaiApiKey,
 });
 
+/**
+ * Convert raw PCM16 data to WAV format
+ */
+const pcmToWav = (pcmBuffer: Buffer, sampleRate: number = 24000): Buffer => {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcmBuffer.length;
+  const headerSize = 44;
+  const fileSize = headerSize + dataSize;
+
+  const wav = Buffer.alloc(fileSize);
+
+  // RIFF header
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(fileSize - 8, 4);
+  wav.write('WAVE', 8);
+
+  // fmt subchunk
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
+  wav.writeUInt16LE(1, 20); // AudioFormat (1 for PCM)
+  wav.writeUInt16LE(numChannels, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(byteRate, 28);
+  wav.writeUInt16LE(blockAlign, 32);
+  wav.writeUInt16LE(bitsPerSample, 34);
+
+  // data subchunk
+  wav.write('data', 36);
+  wav.writeUInt32LE(dataSize, 40);
+
+  // Copy PCM data
+  pcmBuffer.copy(wav, 44);
+
+  return wav;
+};
+
 interface StandardSession {
   clientWs: WebSocket;
   sessionState: SessionState;
@@ -170,9 +209,12 @@ export const processStandardTurn = async (sessionId: string): Promise<void> => {
  * Transcribe audio using Whisper
  */
 const transcribeAudio = async (audioBuffer: Buffer): Promise<string> => {
+  // Convert raw PCM16 to WAV format
+  const wavBuffer = pcmToWav(audioBuffer);
+
   // Convert Buffer to File using OpenAI's toFile helper
-  const file = await OpenAI.toFile(audioBuffer, 'audio.webm', {
-    type: 'audio/webm',
+  const file = await OpenAI.toFile(wavBuffer, 'audio.wav', {
+    type: 'audio/wav',
   });
 
   const response = await openai.audio.transcriptions.create({
