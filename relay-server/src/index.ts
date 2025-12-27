@@ -3,6 +3,8 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { URL } from 'url';
 
+console.log('[Startup] Loading modules...');
+
 import { config, validateConfig } from './config/index.js';
 import { verifyToken } from './auth/firebase.js';
 import {
@@ -46,8 +48,20 @@ import {
 import { ClientMessageSchema } from './types/index.js';
 import type { GuidedSessionType } from './types/index.js';
 
+console.log('[Startup] All modules loaded, validating config...');
+console.log('[Startup] PORT:', config.port);
+console.log('[Startup] NODE_ENV:', config.nodeEnv);
+console.log('[Startup] OPENAI_API_KEY set:', !!config.openaiApiKey);
+console.log('[Startup] GEMINI_API_KEY set:', !!config.geminiApiKey);
+
 // Validate configuration on startup
-validateConfig();
+try {
+  validateConfig();
+  console.log('[Startup] Config validation passed');
+} catch (error) {
+  console.error('[Startup] Config validation failed:', error);
+  process.exit(1);
+}
 
 // Create Express app
 const app = express();
