@@ -118,6 +118,7 @@ export const createSession = async (
     startTime: now,
     lastActivity: now,
     audioBuffer: [],
+    fullSessionAudio: [],
   };
 
   sessions.set(sessionId, session);
@@ -195,6 +196,8 @@ export const addAudioChunk = (sessionId: string, chunk: Buffer): boolean => {
   if (!session) return false;
 
   session.audioBuffer.push(chunk);
+  // Also save to full session audio for tone analysis
+  session.fullSessionAudio.push(chunk);
   session.lastActivity = Date.now();
   return true;
 };
@@ -209,6 +212,15 @@ export const flushAudioBuffer = (sessionId: string): Buffer | null => {
   const combined = Buffer.concat(session.audioBuffer);
   session.audioBuffer = [];
   return combined;
+};
+
+/**
+ * Get full session audio (for tone analysis)
+ */
+export const getFullSessionAudio = (sessionId: string): Buffer | null => {
+  const session = sessions.get(sessionId);
+  if (!session || session.fullSessionAudio.length === 0) return null;
+  return Buffer.concat(session.fullSessionAudio);
 };
 
 /**

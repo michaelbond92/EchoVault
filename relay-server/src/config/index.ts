@@ -11,6 +11,9 @@ export const config = {
   // OpenAI
   openaiApiKey: process.env.OPENAI_API_KEY || '',
 
+  // Google Gemini (for voice tone analysis)
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+
   // Firebase (optional - uses default credentials in Cloud Run)
   firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
 
@@ -23,6 +26,9 @@ export const config = {
   chatModel: 'gpt-4o',
   ttsModel: 'tts-1',
   ttsVoice: 'nova',
+
+  // Gemini settings
+  geminiModel: 'gemini-2.0-flash-exp', // Supports audio input
 
   // Session settings
   maxSessionDurationMs: 15 * 60 * 1000, // 15 minutes
