@@ -110,10 +110,10 @@ Respond in this exact JSON format only, no other text:
 
     const response = result.response.text();
 
-    // Parse JSON from response
+    // Parse JSON from response (don't log raw response to avoid leaking transcript)
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('Failed to parse Gemini response:', response);
+      console.error('Failed to parse Gemini voice analysis response - no JSON found');
       return null;
     }
 

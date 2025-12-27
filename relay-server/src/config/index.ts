@@ -44,4 +44,9 @@ export const validateConfig = (): void => {
   if (missing.length > 0) {
     throw new Error(`Missing required config: ${missing.join(', ')}`);
   }
+
+  // Warn about optional but recommended config
+  if (!config.geminiApiKey) {
+    console.warn('GEMINI_API_KEY not set - voice tone analysis will be disabled');
+  }
 };
